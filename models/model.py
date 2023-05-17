@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC,abstractmethod
 
 class Model(ABC):
 
@@ -6,22 +6,25 @@ class Model(ABC):
     # x_train, y_train, x_test, y_test
 
     def __init__(self):
+        self.XTrain=None
+        self.XTest=None
+        self.YTrain=None
+        self.YTest=None
     @abstractmethod
-    def fit(self,x,y):
+    def fit(self):
         pass
+
     @abstractmethod
-    def score_dataset(self,x,y, _model=None):
+    def score_model(self):
         pass
-    
-    def train_model(self, x,y, train_type="TestTrainSplit", test_size=0.25, random_state=42):
-        #Splitting, prepare data
-        #calls to fit
-        self._model=self.fit()
 
     def score(self, x=None, y=None):
-        if x==None:
-            if self.x_test==None:
+        if x is None:
+            if self.XTest is None:
+                # TODO: refactor to assert
                 print("You are dumb")
             else:
-                x=self.x_test
+                x=self.XTest
+                y=self.YTest
+        return self.score_model(x,y)
     
