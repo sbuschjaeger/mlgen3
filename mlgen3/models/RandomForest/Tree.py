@@ -5,7 +5,7 @@ import numpy as np
 
 from sklearn.tree import _tree
 
-from models.RandomForest.Node import Node
+from .Node import Node
 
 class Tree():
 	def __init__(self):

@@ -1,11 +1,12 @@
 from abc import ABC
 
-from models.RandomForest.Tree import Tree
-from implemantations.cpp.ensemble import Ensemble
+from mlgen3.models.RandomForest.Tree import Tree
+from .ensemble import Ensemble
 
 class IfElse(Ensemble):
 
     def __init__(self, model, feature_type="int", label_type="int"):
+        # TODO assert that model is either Tree or Forest object
         super().__init__(model,feature_type,label_type)
 
     def implement_member(self, number): #returned

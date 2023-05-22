@@ -1,4 +1,4 @@
-from ..model import model
+from .model import model
 
 class RandomForestClassified(Model) : #Could be SKLearnRFC
     def __init__(self, max_depth, n_estimators):

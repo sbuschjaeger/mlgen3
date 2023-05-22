@@ -1,7 +1,7 @@
 from abc import ABC
 
 from sklearn.model_selection import train_test_split
-from trainers.trainer import Trainer
+from .trainer import Trainer
 
 class TestTrainSplit(Trainer):
 

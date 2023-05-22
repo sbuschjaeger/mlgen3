@@ -1,7 +1,8 @@
-from models.model import Model
 from sklearn.ensemble import RandomForestClassifier
-from models.RandomForest.Forest import Forest
 from sklearn.metrics import accuracy_score
+
+from .model import Model
+from .RandomForest.Forest import Forest
 
 class SKRandomForestClassifier(Model) : #Could be SKLearnRFC
     def __init__(self, max_depth, n_estimators):

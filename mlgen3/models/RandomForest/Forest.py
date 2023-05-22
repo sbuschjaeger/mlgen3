@@ -5,7 +5,7 @@ from sklearn.ensemble import AdaBoostClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import ExtraTreesClassifier
 
-from models.RandomForest.Tree import Tree
+from .Tree import Tree
 
 class Forest:
 	def __init__(self):

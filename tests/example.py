@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 
-import sys
-sys.path.append("..")
-import mlgen3
+#import sys
+#sys.path.append("..")
+#import mlgen3
 
-from trainers.testtrainsplit import TestTrainSplit
-from models.SKRandomForestClassifier import SKRandomForestClassifier
-from implemantations.cpp.IfElse import IfElse
+from mlgen3.trainers.testtrainsplit import TestTrainSplit
+#from mlgen3.trainers.testtrainsplit import TestTrainSplit
 
-from dataset_parser import load_adult_dataset
+from mlgen3.models.SKRandomForestClassifier import SKRandomForestClassifier
+from mlgen3.implemantations.cpp.IfElse import IfElse
+
+from Datasets import get_dataset
 
 '''
 copy function on model class?
@@ -16,7 +18,8 @@ copy function on model class?
 
 # x,y=load_from_csv("adult.csv", yindex=0)
 #Load adult data manually
-x,y=load_adult_dataset()
+x,y = get_dataset("adult")
+#x,y=load_adult_dataset()
 
 '''
 types: TestTrainSplit, CorssValidation

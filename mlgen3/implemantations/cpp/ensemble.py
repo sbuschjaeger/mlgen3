@@ -1,6 +1,6 @@
 from abc import ABC,abstractmethod
 
-from implemantations.implementation import Implementation
+from ..implementation import Implementation
 
 class Ensemble(Implementation):
 
