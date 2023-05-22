@@ -6,6 +6,7 @@ class Implementation(ABC):
 
     def __init__(self):
         pass
+    
     @abstractmethod
     def implement(self):
         pass
