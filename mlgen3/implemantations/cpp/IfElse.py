@@ -15,18 +15,18 @@ class IfElse(Ensemble):
         std::vector<{label_type}> predict_{number}(std::vector<{feature_type}> &pX);
         """.replace("{label_type}",self.label_type).replace("{feature_type}",self.feature_type).replace("{number}",str(number))
 
-        def implement_node(node):
+        def implement_node(node, indentation=""):
             if node.prediction is not None:
-                return_code="std::vector<"+self.label_type+">{"+",".join([str(s) for s in node.prediction])+"}"
+                return_code="std::vector<"+self.label_type+">({"+",".join([str(s) for s in node.prediction])+"})"
                 return """return {prediction};""".replace("{prediction}",return_code)
             return """
-            if (pX[{fi}] <= {split}){
-                {leftChild}
-            }
-            else{
-                {rightChild}
-            }
-            """.replace("{fi}",str(node.feature)).replace("{split}",str(node.split)).replace("{leftChild}",implement_node(node.leftChild)).replace("{rightChild}",implement_node(node.rightChild))
+            {indent}if (pX[{fi}] <= {split}){
+            {indent}    {leftChild}
+            {indent}}
+            {indent}else{
+            {indent}    {rightChild}
+            {indent}}
+            """.replace("{fi}",str(node.feature)).replace("{split}",str(node.split)).replace("{leftChild}",implement_node(node.leftChild, indentation+"   ")).replace("{rightChild}",implement_node(node.rightChild, indentation+"   ")).replace("{indent}",indentation)
 
         code="""
         std::vector<{label_type}> predict_{number}(std::vector<{feature_type}> &pX){

@@ -32,13 +32,13 @@ trainer.train(model)
 scores=trainer.score() #Can have another dataset, score is a call to the type object of the modelconfig
 print("My model scrors to "+str(scores))
 # #Modifications on the model object, prune, ...
-implementation=IfElse(model, feature_type="int", label_type="int")
+implementation=IfElse(model, feature_type="int", label_type="float")
 implementation.implement()
-print(implementation._header)
-print("#####")
-print(implementation._code)
+# print(implementation._header)
+# print("#####")
+# print(implementation._code)
 # #Can already have test code / data arrays
 materializer=LinuxCPPStandalone(implementation, run_test=True, measure_time=True, run_in_perf=True)
-materializer.materialize("/tmp/mlgen3/mymodel")
-#materializer.deploy() # in this case, make
+materializer.materialize("mymodeltets")
+materializer.deploy() # in this case, make
 # output=materializer.run() # output is a fancy python object {"accuracy":5, "time":2.2, "icachemisses":26378}
