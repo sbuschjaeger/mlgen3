@@ -6,6 +6,7 @@ from .trainer import Trainer
 class TestTrainSplit(Trainer):
 
     def __init__(self, X, y, test_size=0.25, random_state=None):
+        # TODO train_test_split mit numpy impl.
         self.XTrain,self.XTest,self.YTrain,self.YTest = train_test_split(X, y, test_size=test_size, random_state=random_state)
         self._model=None
 

@@ -11,6 +11,7 @@ class IfElse(Ensemble):
 
     def implement_member(self, number): #returned
         tree=self.model.internal_forest.trees[number]
+        # TODO use format instead of replace
         header="""
         std::vector<{label_type}> predict_{number}(std::vector<{feature_type}> &pX);
         """.replace("{label_type}",self.label_type).replace("{feature_type}",self.feature_type).replace("{number}",str(number))
