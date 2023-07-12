@@ -11,28 +11,28 @@ class IfElse(Ensemble):
 
     def implement_member(self, number): #returned
         tree=self.model.internal_forest.trees[number]
-        header="""
-        std::vector<{label_type}> predict_{number}(std::vector<{feature_type}> &pX);
-        """.replace("{label_type}",self.label_type).replace("{feature_type}",self.feature_type).replace("{number}",str(number))
+        header=f"std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &pX);"
 
         def implement_node(node, indentation=""):
             if node.prediction is not None:
-                return_code="std::vector<"+self.label_type+">({"+",".join([str(s) for s in node.prediction])+"})"
-                return """return {prediction};""".replace("{prediction}",return_code)
-            return """
-            {indent}if (pX[{fi}] <= {split}){
-            {indent}    {leftChild}
-            {indent}}
-            {indent}else{
-            {indent}    {rightChild}
-            {indent}}
-            """.replace("{fi}",str(node.feature)).replace("{split}",str(node.split)).replace("{leftChild}",implement_node(node.leftChild, indentation+"   ")).replace("{rightChild}",implement_node(node.rightChild, indentation+"   ")).replace("{indent}",indentation)
+                arr = "{" + ",".join([str(s) for s in node.prediction]) + "}"
+                return f"return std::vector<{self.label_type}>({arr})"
+                #return_code="std::vector<"+self.label_type+">({"+",".join([str(s) for s in node.prediction])+"})"
+                # return """return {prediction};""".replace("{prediction}",return_code)
+            
+            return f"""
+                {indentation}if (pX[{node.feature}] <= {node.split}){{
+                {indentation}    {implement_node(node.leftChild, indentation+"   ")}
+                {indentation}}}else{{
+                {indentation}    {implement_node(node.rightChild, indentation+"   ")}
+                {indentation}}}
+            """
 
-        code="""
-        std::vector<{label_type}> predict_{number}(std::vector<{feature_type}> &pX){
-            {tree_code}
-        }
-        """.replace("{tree_code}",implement_node(tree.head)).replace("{label_type}",self.label_type).replace("{feature_type}",self.feature_type).replace("{number}",str(number))
+        code=f"""
+            std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &pX){{
+            {implement_node(tree.head)}
+        }}
+        """
 
         return header, code
     

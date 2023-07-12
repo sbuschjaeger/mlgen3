@@ -16,14 +16,17 @@ class Ensemble(Implementation):
         self._header=""
     
     def implement(self):
-        self._header="""
-#pragma once
-#include <vector>
-#include <algorithm>
-std::vector<{label_type}> predict(std::vector<{feature_type}> &pX);
-        """.replace("{label_type}",self.label_type).replace("{feature_type}",self.feature_type)
+        self._header=f"""
+            #pragma once
+            #include <vector>
+            #include <algorithm>
+            std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);
+        """
 
-        ensemble_code="std::vector<{label_type}> result;\nstd::vector<{label_type}> result_temp;\n"
+        ensemble_code=f"""
+            std::vector<{self.label_type}> result;
+            std::vector<{self.label_type}> result_temp;
+        """
         tree_code=""
 
         for n_tree in range(len(self.model.internal_forest.trees)):
@@ -31,17 +34,17 @@ std::vector<{label_type}> predict(std::vector<{feature_type}> &pX);
             tree_code += code
             self._header += header
             if n_tree==0:
-                ensemble_code+="result=predict_{num}(pX);\n".replace("{num}",str(n_tree))
+                ensemble_code+=f"result=predict_{n_tree}(pX);\n"
             else:
-                ensemble_code+="result_temp=predict_{num}(pX);\n".replace("{num}",str(n_tree))
+                ensemble_code+=f"result_temp=predict_{n_tree}(pX);\n"
                 ensemble_code+="std::transform(result.begin(), result.end(), result_temp.begin(),result.begin(), std::plus<{label_type}>());\n"
 
         # TODO NAME IS REQUIRED HERE!
-        self._code="""
-        #include "model.h"
-        {tree_code}
-        std::vector<{label_type}> predict(std::vector<{feature_type}> &pX){
-            {ensemble_code}
-            return result;
-        }
-        """.replace("{ensemble_code}",ensemble_code).replace("{label_type}",self.label_type).replace("{feature_type}",self.feature_type).replace("{tree_code}", tree_code)
+        self._code=f"""
+            #include "model.h"
+            {tree_code}
+            std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX){{
+                {ensemble_code}
+                return result;
+            }}
+        """
