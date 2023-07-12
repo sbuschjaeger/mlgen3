@@ -1,0 +1,5 @@
+COMPILER = g++
+FLAGS = -std=c++17 -Wall -O3 -funroll-loops -ftree-vectorize
+
+all:
+	$(COMPILER) $(FLAGS) main.cpp {filename}.cpp -o {filename}

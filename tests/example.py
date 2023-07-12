@@ -4,6 +4,8 @@
 #sys.path.append("..")
 #import mlgen3
 
+import os
+import tempfile
 from mlgen3.materializer.linuxcppstandalone import LinuxCPPStandalone
 from mlgen3.trainers.testtrainsplit import TestTrainSplit
 #from mlgen3.trainers.testtrainsplit import TestTrainSplit
@@ -38,7 +40,8 @@ implementation.implement()
 # print("#####")
 # print(implementation._code)
 # #Can already have test code / data arrays
-materializer=LinuxCPPStandalone(implementation, run_test=True, measure_time=True, run_in_perf=True)
-materializer.materialize("mymodeltets")
+materializer=LinuxCPPStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
+materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "debug"))
 materializer.deploy() # in this case, make
-# output=materializer.run() # output is a fancy python object {"accuracy":5, "time":2.2, "icachemisses":26378}
+output=materializer.run() # output is a fancy python object {"accuracy":5, "time":2.2, "icachemisses":26378}
+print(output)

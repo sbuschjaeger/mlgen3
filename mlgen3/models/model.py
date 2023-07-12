@@ -10,6 +10,7 @@ class Model(ABC):
         self.XTest=None
         self.YTrain=None
         self.YTest=None
+        
     @abstractmethod
     def fit(self):
         pass

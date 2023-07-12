@@ -9,18 +9,18 @@ class Ensemble(Implementation):
         pass
 
     def __init__(self, model, feature_type="int", label_type="int"):
+        super().__init__(feature_type, label_type)
         self.model=model
-        self.feature_type=feature_type
-        self.label_type=label_type
 
         self._code=""
         self._header=""
     
     def implement(self):
         self._header="""
-        #include <vector>
-        #include <algorithm>
-        std::vector<{label_type}> predict(std::vector<{feature_type}> &pX);
+#pragma once
+#include <vector>
+#include <algorithm>
+std::vector<{label_type}> predict(std::vector<{feature_type}> &pX);
         """.replace("{label_type}",self.label_type).replace("{feature_type}",self.feature_type)
 
         ensemble_code="std::vector<{label_type}> result;\nstd::vector<{label_type}> result_temp;\n"
@@ -36,10 +36,9 @@ class Ensemble(Implementation):
                 ensemble_code+="result_temp=predict_{num}(pX);\n".replace("{num}",str(n_tree))
                 ensemble_code+="std::transform(result.begin(), result.end(), result_temp.begin(),result.begin(), std::plus<{label_type}>());\n"
 
-            
-
-
+        # TODO NAME IS REQUIRED HERE!
         self._code="""
+        #include "model.h"
         {tree_code}
         std::vector<{label_type}> predict(std::vector<{feature_type}> &pX){
             {ensemble_code}
