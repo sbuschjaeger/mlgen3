@@ -101,17 +101,24 @@ typedef {self._implementation.feature_type} FEATURE_TYPE;
         dfTest = pd.concat([pd.DataFrame(XTest, columns=["f{}".format(i) for i in range(len(XTest[0]))]), pd.DataFrame(YTest,columns=["label"])], axis=1)
         dfTest.to_csv(os.path.join(self._path, "testing.csv"), header=True, index=False)
         
-    def run(self):
-        # TODO do something nice with .stdout/.stderr
+    def run(self, verbose = False):
         make_res = subprocess.run(f"cd {self._path} && make", capture_output=True, text=True, shell=True)
-        # print(make_res.stdout)
+        if verbose:
+            print(f"Running cd {self._path} && make")
+            print(f"\tstdout: {make_res.stdout}")
+            print(f"\tstderr: {make_res.stderr}")
         run_res = subprocess.run(f"cd {self._path} && ./{self.filename} testing.csv 2", capture_output=True, text=True, shell=True).stdout
         
+        if verbose:
+            print(f"cd {self._path} && ./{self.filename} testing.csv 2")
+            print(f"\tstdout: {run_res.stdout}")
+            print(f"\tstderr: {run_res.stderr}")
+
         metrics = {}
         lines = run_res.split("\n")
         for cur_line in lines:
             if len(cur_line) > 0:
                 l = cur_line.split(":")
                 metrics[l[0]] = l[1].split(" ")[1]
-        # print(run_res.stdout)
+        
         return metrics
