@@ -3,12 +3,12 @@ import numpy as np
 
 from functools import reduce
 
-from sklearn.tree import _tree
-from sklearn.tree import DecisionTreeRegressor		
 
 # TODO REMOVE THIS DEPENDENCY?
 from sklearn.utils.validation import check_is_fitted
 from sklearn.metrics import accuracy_score
+from sklearn.tree import DecisionTreeClassifier, _tree
+from weka.classifiers import Classifier
 
 from ..model import Model
 
@@ -71,15 +71,24 @@ class Tree(Model):
 
 		# Check if the classifier is already fitted
 		# TODO Do we really want / need this?
-		if model is not None and hasattr(model, "tree_"):
+		if model is not None:
 			self.init_from_fitted(model)
-		
 
 	def init_from_fitted(self, original_model):
-		# TODO ADD different models here
-		tmp = Tree.from_sklearn(original_model)
-		self.nodes = tmp.nodes
-		self.head = tmp.head
+		if isinstance(original_model, DecisionTreeClassifier):
+			if hasattr(original_model, "tree_"):
+				tmp = Tree.from_sklearn(original_model)
+				self.nodes = tmp.nodes
+				self.head = tmp.head
+		elif isinstance(original_model, Classifier) and original_model.classname == "weka.classifiers.trees.J48":
+			# TODO Is there a better way to determine if this weka model has been build yet?
+			if str(original_model) != "No classifier built":
+				tmp = Tree.from_weka(original_model)
+				self.nodes = tmp.nodes
+				self.head = tmp.head
+		else:
+			raise ValueError("Unrecognizued model is passed to Tree.init_from_fitted(model). Currently implemented are sklearn.tree.DecisionTreeClassifier and weka.classifiers.trees.J48!")
+		self.populate_path_probs()
 
 	def predict_proba(self,X):
 		"""Applies this tree to the given data and provides the predicted probabilities for each example in X.
@@ -113,6 +122,78 @@ class Tree(Model):
 		#Compute some value
 		return {"Accuracy": accuracy}
 
+	@classmethod
+	def from_weka(cls, weka_model):
+		if "-B" not in weka_model.to_dict()["options"]:
+			raise ValueError("The supplied weka tree was not trained with the '-B' option enabled. Currently we only support binary splits, so please supply '-B' before training your weka model.")
+
+		tree = Tree(None)
+		tree.model = weka_model
+		tree.nodes = []
+		weka_str = str(weka_model)
+
+		def parse_node(subtree, tree):
+			n = Node()
+			n.id = len(tree.nodes)
+			tree.nodes.append(n)
+
+			if "!=" in subtree[0]:
+				raise ValueError("Encountered a decision tree with nominal values. This is currently not supported. Please make sure the tree only contains numerical values.")
+
+			if len(subtree) == 1:
+				n.prediction = int(subtree[0].split("(")[0].split(":")[1])
+				# See https://github.com/bnjmn/weka/blob/master/weka/src/main/java/weka/classifiers/trees/j48/ClassifierSplitModel.java#L180
+				if "/" in subtree[0].split("(")[1]:
+					n.numSamples = float(subtree[0].split("(")[1].split("/")[0])
+				else:
+					n.numSamples = float(subtree[0].split("(")[1].split(")")[0])
+
+				return n
+			else:
+				l = subtree[0]
+				# Weka starts to count with 1 instead of 0 ...
+				n.feature = int(l.split("<=")[0].split("x")[1]) - 1
+				n.split = float(l.split("<=")[1].split(":")[0])
+				idx = np.where([f"x{n.feature+1} > {n.split}" in l for l in subtree])[0][0]
+				
+				# Check if the left node is a leaf, if not ignore it while parsing
+				if "(" not in subtree[0]: 
+					n.leftChild = parse_node(subtree[1:idx], tree)
+				else:
+					n.leftChild = parse_node(subtree[:idx], tree)
+
+				# Check if the right node is a leaf, if not ignore it while parsing
+				if "(" in subtree[idx]:
+					n.rightChild = parse_node(subtree[idx:], tree)
+				else:
+					n.rightChild = parse_node(subtree[idx+1:], tree)
+				return n
+		
+		tree.head = parse_node(weka_str.split("\n")[3:-5], tree)
+
+		# TODO: Find a way to extract probablities from weka. So far, we are only extracting predictions
+		n_classes = int(max([n.prediction for n in tree.nodes if n.prediction is not None])) + 1
+		for n in tree.nodes:
+			if n.prediction is not None:
+				pred = np.zeros(n_classes)
+				pred[n.prediction] = 1
+				n.prediction = pred
+
+		# Make sure that all other statistics of each tree is populated correctly
+		def populate_no_samples(n):
+			if n.numSamples is None:
+				left = populate_no_samples(n.leftChild)
+				right = populate_no_samples(n.rightChild)
+				n.numSamples = left + right
+				n.probLeft = left / n.numSamples
+				n.probRight = right / n.numSamples
+
+			return n.numSamples
+		
+		_ = populate_no_samples(tree.head)
+
+		return tree
+	
 	@classmethod
 	def from_sklearn(cls, sk_model, ensemble_type = None):
 		"""Generates a new tree from an sklearn tree.
@@ -184,7 +265,6 @@ class Tree(Model):
 				node.rightChild = Node()
 				tmp_nodes.append(node.rightChild)
 
-		tree.populate_path_probs()
 		return tree
 
 	@classmethod

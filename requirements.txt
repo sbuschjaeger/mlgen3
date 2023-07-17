@@ -1,1 +1,8 @@
+scikit-learn
+# There seems to be an issue with python-javabridge, which is required for python-weka-wrapper3 and python 3.11. 
+# Following this post (https://github.com/LeeKamentsky/python-javabridge/issues/209), we use the github version of python-javabridge. Unfortunately, the versions do not match for python-javabridge and python-weka-wrapper3 and hence we install python-weka-wrapper3 without dependencies.
+git+https://github.com/LeeKamentsky/python-javabridge.git
+python-weka-wrapper3 --no-deps
+simple-data-flow
+configurable-objects
 -e .
