@@ -5,12 +5,12 @@ class Materializer(ABC):
     #Has a _code variable with <label_type> predict(<feature_type>[] pX);
 
     def __init__(self, implementation):
-        self._implementation = implementation
+        self.implementation = implementation
         pass
 
     @abstractmethod
     def materialize(self, path):
-        self._path=path
+        self.path = path
         pass
 
     @abstractmethod

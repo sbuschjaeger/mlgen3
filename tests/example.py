@@ -6,12 +6,15 @@
 
 import os
 import tempfile
+
+from sklearn.ensemble import RandomForestClassifier
+
 from mlgen3.materializer.linuxcppstandalone import LinuxCPPStandalone
 from mlgen3.trainers.testtrainsplit import TestTrainSplit
 #from mlgen3.trainers.testtrainsplit import TestTrainSplit
 
-from mlgen3.models.SKRandomForestClassifier import SKRandomForestClassifier
-from mlgen3.implemantations.cpp.IfElse import IfElse
+from mlgen3.models.tree_ensemble.forest import Forest
+from mlgen3.implemantations.cpp.ifelse import IfElse
 
 from Datasets import get_dataset
 
@@ -27,14 +30,14 @@ x,y = get_dataset("adult")
 '''
 types: TestTrainSplit, CorssValidation
 '''
-trainer=TestTrainSplit(x,y)
-model=SKRandomForestClassifier(max_depth=10, n_estimators=5)
+trainer = TestTrainSplit(x,y)
+model = Forest(RandomForestClassifier(max_depth=10, n_estimators=5)) 
 trainer.train(model)
 # #Alternative, load mdoel
-scores=trainer.score() #Can have another dataset, score is a call to the type object of the modelconfig
+scores = trainer.score() #Can have another dataset, score is a call to the type object of the modelconfig
 print("My model scrors to "+str(scores))
 # #Modifications on the model object, prune, ...
-implementation=IfElse(model, feature_type="int", label_type="float")
+implementation = IfElse(model, feature_type="int", label_type="float")
 implementation.implement()
 # print(implementation._header)
 # print("#####")

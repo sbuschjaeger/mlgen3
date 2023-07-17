@@ -25,14 +25,14 @@ class LinuxCPPStandalone(Materializer):
         # I dont why we need to call this here. This does not really make sense? Why do we need to store the path? Simply for the deploy step? 
         super().materialize(path)
 
-        if not os.path.isdir(self._path):
-            os.makedirs(self._path)
+        if not os.path.isdir(self.path):
+            os.makedirs(self.path)
 
-        with open(os.path.join(self._path, self.filename + ".cpp"), 'w') as f:
-            f.write(self._implementation._code)
+        with open(os.path.join(self.path, self.filename + ".cpp"), 'w') as f:
+            f.write(self.implementation.code)
 
-        with open(os.path.join(self._path, self.filename + ".h"), 'w') as f:
-            f.write(self._implementation._header)
+        with open(os.path.join(self.path, self.filename + ".h"), 'w') as f:
+            f.write(self.implementation.header)
 
     def generate_tests(self):
         main_str = files('mlgen3.materializer').joinpath('linuxcppstandalone_main.template').read_text()
@@ -72,9 +72,9 @@ class LinuxCPPStandalone(Materializer):
         # TODO this is currently hard-coded. Remove LABEL_TYPE 
         typedefinitions = f"""
 #include "{self.filename}.h"    
-typedef {self._implementation.label_type} OUTPUT_TYPE;
+typedef {self.implementation.label_type} OUTPUT_TYPE;
 typedef unsigned int LABEL_TYPE;
-typedef {self._implementation.feature_type} FEATURE_TYPE;
+typedef {self.implementation.feature_type} FEATURE_TYPE;
 """
 
         main_str = main_str.replace("{start_measurement}", start_measurement).replace("{end_measurement}", end_measurement).replace("{measure_results}", measure_results).replace("{print_measurements}", print_measurements).replace("{typedefinitions}", typedefinitions)
@@ -88,34 +88,34 @@ typedef {self._implementation.feature_type} FEATURE_TYPE;
         makefile_str = files('mlgen3.materializer').joinpath('linuxcppstandalone_makefile.template').read_text()
         makefile_str = makefile_str.replace("{filename}", self.filename)
 
-        with open(os.path.join(self._path, "Makefile"), 'w') as f:
+        with open(os.path.join(self.path, "Makefile"), 'w') as f:
             f.write(makefile_str)
 
         if self.measure_time or self.measure_accuracy or self.measure_perf:
-            with open(os.path.join(self._path, "main.cpp"), 'w') as f:
+            with open(os.path.join(self.path, "main.cpp"), 'w') as f:
                 f.write(self.generate_tests())
         
         # TODO This is a bit weird, refactor it?
-        XTest = self._implementation.model.XTest.astype(np.float32)
-        YTest = self._implementation.model.YTest
+        XTest = self.implementation.model.XTest.astype(np.float32)
+        YTest = self.implementation.model.YTest
         dfTest = pd.concat([pd.DataFrame(XTest, columns=["f{}".format(i) for i in range(len(XTest[0]))]), pd.DataFrame(YTest,columns=["label"])], axis=1)
-        dfTest.to_csv(os.path.join(self._path, "testing.csv"), header=True, index=False)
+        dfTest.to_csv(os.path.join(self.path, "testing.csv"), header=True, index=False)
         
     def run(self, verbose = False):
-        make_res = subprocess.run(f"cd {self._path} && make", capture_output=True, text=True, shell=True)
+        make_res = subprocess.run(f"cd {self.path} && make", capture_output=True, text=True, shell=True)
         if verbose:
-            print(f"Running cd {self._path} && make")
-            print(f"\tstdout: {make_res.stdout}")
-            print(f"\tstderr: {make_res.stderr}")
-        run_res = subprocess.run(f"cd {self._path} && ./{self.filename} testing.csv 2", capture_output=True, text=True, shell=True).stdout
+            print(f"Running cd {self.path} && make")
+            print(f"stdout: \n{make_res.stdout}")
+            print(f"stderr: \n{make_res.stderr}")
+        run_res = subprocess.run(f"cd {self.path} && ./{self.filename} testing.csv 2", capture_output=True, text=True, shell=True)
         
         if verbose:
-            print(f"cd {self._path} && ./{self.filename} testing.csv 2")
-            print(f"\tstdout: {run_res.stdout}")
-            print(f"\tstderr: {run_res.stderr}")
+            print(f"cd {self.path} && ./{self.filename} testing.csv 2")
+            print(f"stdout: \n{run_res.stdout}")
+            print(f"stderr: \n{run_res.stderr}")
 
         metrics = {}
-        lines = run_res.split("\n")
+        lines = run_res.stdout.split("\n")
         for cur_line in lines:
             if len(cur_line) > 0:
                 l = cur_line.split(":")
