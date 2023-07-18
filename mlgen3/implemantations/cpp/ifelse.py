@@ -26,25 +26,26 @@ class IfElse(Ensemble):
             # This string should not have any whitespaces/newlines at the beginning/end of it, because it would 
             # mess-up the recursion at bit => strip it
             return f"""
-                {indentation}if (pX[{node.feature}] <= {node.split}){{
-                {indentation}    {implement_node(node.leftChild, indentation+"    ")}
-                {indentation}}} else {{
-                {indentation}    {implement_node(node.rightChild, indentation+"    ")}
-                {indentation}}}
-            """.strip()
+                if (pX[{node.feature}] <= {node.split}){{
+                    {implement_node(node.leftChild, indentation+"    ")}
+                }} else {{
+                    {implement_node(node.rightChild, indentation+"    ")}
+                }}
+            """
         
         if number is None:
             code = f"""
-            std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX){{
-                {implement_node(tree.head)}
-            }}
-        """
+                std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX){{
+                    {implement_node(tree.head)}
+                }}
+            """
         else:
             code = f"""
                 std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &pX){{
                     {implement_node(tree.head)}
                 }}
             """
+
 
         return header, code
     

@@ -67,30 +67,35 @@ class Ensemble(Implementation):
             # are already properly aligned, we add them _after_ the call to cleandoc. Same goes for ensemble_code
 
             # TODO NAME IS REQUIRED HERE!
-            self.header = inspect.cleandoc(f"""
+            self.header = f"""
                 #pragma once
                 #include <vector>
                 #include <algorithm>
                 std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);
-            """) + "\n" + tree_headers
+                {tree_headers}
+            """ 
 
-            self.code = inspect.cleandoc(f"""
+            self.code = f"""
                 #include "model.h"
                 {tree_code}
                 std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX){{
-            """) + "\n" + ensemble_code + inspect.cleandoc(f"""
-                return result;
-            }}""")
+                    {ensemble_code}
+                    return result;
+                }}
+            """ 
         else:
             _, code = self.implement_member(None)
-            self.header = inspect.cleandoc(f"""
+            self.header = f"""
                 #pragma once
                 #include <vector>
                 #include <algorithm>
                 std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);
-            """)
+            """
 
-            self.code = "#include \"model.h\"\n" + inspect.cleandoc(code)
+            self.code = f"""
+                #include "model.h"
+                {code}
+            """.strip()
 
         
 

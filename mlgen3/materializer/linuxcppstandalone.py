@@ -21,6 +21,15 @@ class LinuxCPPStandalone(Materializer):
         assert measure_perf is False, "Perf performance tests are currently not implemented."
         # TODO Add scoring against reference implementation 
 
+    def beautify(self, s):
+        try:
+            from astyle_py import Astyle
+            formatter = Astyle()
+            formatter.set_options('--style=google --mode=c --delete-empty-lines')
+            return formatter.format(s)
+        except ImportError:
+            return s
+
     def materialize(self, path):
         # I dont why we need to call this here. This does not really make sense? Why do we need to store the path? Simply for the deploy step? 
         super().materialize(path)
@@ -29,10 +38,10 @@ class LinuxCPPStandalone(Materializer):
             os.makedirs(self.path)
 
         with open(os.path.join(self.path, self.filename + ".cpp"), 'w') as f:
-            f.write(self.implementation.code)
+            f.write(self.beautify(self.implementation.code))
 
         with open(os.path.join(self.path, self.filename + ".h"), 'w') as f:
-            f.write(self.implementation.header)
+            f.write(self.beautify(self.implementation.header))
 
     def generate_tests(self):
         main_str = files('mlgen3.materializer').joinpath('linuxcppstandalone_main.template').read_text()
@@ -45,9 +54,9 @@ class LinuxCPPStandalone(Materializer):
         if self.measure_time:
             start_measurement += "auto start = std::chrono::high_resolution_clock::now();"
             end_measurement += """
-    auto end = std::chrono::high_resolution_clock::now();   
-    auto runtime = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count()) / (X.size() * repeat);
-"""
+                auto end = std::chrono::high_resolution_clock::now();   
+                auto runtime = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count()) / (X.size() * repeat);
+            """
         
         if self.measure_accuracy:
             end_measurement += "float accuracy = static_cast<float>(matches) / X.size() * 100.f;"
@@ -55,32 +64,29 @@ class LinuxCPPStandalone(Materializer):
         if self.measure_time and not self.measure_accuracy:
             measure_results = "return runtime;"
             print_measurements = """
-    std::cout << "Latency: " << results << " [ms/elem]" << std::endl;
-    """
+                std::cout << "Latency: " << results << " [ms/elem]" << std::endl;
+            """
         elif not self.measure_time and self.measure_accuracy:
             measure_results = "return accuracy;"
-            print_measurements = """
-    std::cout << "Accuracy: " << accuracy << " %" << std::endl;
-    """     
+            print_measurements = """std::cout << "Accuracy: " << accuracy << " %" << std::endl;"""
         elif self.measure_time and self.measure_accuracy:
             measure_results = "return std::make_pair(accuracy, runtime);"
             print_measurements = """
-    std::cout << "Accuracy: " << results.first << " %" << std::endl;
-    std::cout << "Latency: " << results.second << " [ms/elem]" << std::endl;
-"""
+                std::cout << "Accuracy: " << results.first << " %" << std::endl;
+                std::cout << "Latency: " << results.second << " [ms/elem]" << std::endl;
+            """
 
         # TODO this is currently hard-coded. Remove LABEL_TYPE 
         typedefinitions = f"""
-#include "{self.filename}.h"    
-typedef {self.implementation.label_type} OUTPUT_TYPE;
-typedef unsigned int LABEL_TYPE;
-typedef {self.implementation.feature_type} FEATURE_TYPE;
-"""
+            #include "{self.filename}.h"    
+            typedef {self.implementation.label_type} OUTPUT_TYPE;
+            typedef unsigned int LABEL_TYPE;
+            typedef {self.implementation.feature_type} FEATURE_TYPE;
+            """
 
         main_str = main_str.replace("{start_measurement}", start_measurement).replace("{end_measurement}", end_measurement).replace("{measure_results}", measure_results).replace("{print_measurements}", print_measurements).replace("{typedefinitions}", typedefinitions)
         
         return main_str
-        
     
     def deploy(self):
         assert self.measure_perf or self.measure_accuracy or self.measure_time, "Cannot deploy model since no test code was generated for this implementation. Please set at-least on of the following arguments to true: measure_perf, measure_accuracy or measure_time"
@@ -93,7 +99,7 @@ typedef {self.implementation.feature_type} FEATURE_TYPE;
 
         if self.measure_time or self.measure_accuracy or self.measure_perf:
             with open(os.path.join(self.path, "main.cpp"), 'w') as f:
-                f.write(self.generate_tests())
+                f.write(self.beautify(self.generate_tests()))
         
         # TODO This is a bit weird, refactor it?
         XTest = self.implementation.model.XTest.astype(np.float32)

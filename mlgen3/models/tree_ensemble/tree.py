@@ -69,6 +69,8 @@ class Tree(Model):
 		# Pointer to the root node of this tree
 		self.head = None
 
+		self.n_classes = None
+
 		# Check if the classifier is already fitted
 		# TODO Do we really want / need this?
 		if model is not None:
@@ -80,12 +82,14 @@ class Tree(Model):
 				tmp = Tree.from_sklearn(original_model)
 				self.nodes = tmp.nodes
 				self.head = tmp.head
+				self.n_classes = tmp.n_classes
 		elif isinstance(original_model, Classifier) and original_model.classname == "weka.classifiers.trees.J48":
 			# TODO Is there a better way to determine if this weka model has been build yet?
 			if str(original_model) != "No classifier built":
 				tmp = Tree.from_weka(original_model)
 				self.nodes = tmp.nodes
 				self.head = tmp.head
+				self.n_classes = tmp.n_classes
 		else:
 			raise ValueError("Unrecognizued model is passed to Tree.init_from_fitted(model). Currently implemented are sklearn.tree.DecisionTreeClassifier and weka.classifiers.trees.J48!")
 		self.populate_path_probs()
@@ -172,10 +176,10 @@ class Tree(Model):
 		tree.head = parse_node(weka_str.split("\n")[3:-5], tree)
 
 		# TODO: Find a way to extract probablities from weka. So far, we are only extracting predictions
-		n_classes = int(max([n.prediction for n in tree.nodes if n.prediction is not None])) + 1
+		tree.n_classes = int(max([n.prediction for n in tree.nodes if n.prediction is not None])) + 1
 		for n in tree.nodes:
 			if n.prediction is not None:
-				pred = np.zeros(n_classes)
+				pred = np.zeros(tree.n_classes)
 				pred[n.prediction] = 1
 				n.prediction = pred
 
@@ -210,7 +214,8 @@ class Tree(Model):
 		
 		tree.nodes = []
 		tree.head = None
-
+		tree.n_classes = sk_model.n_classes_
+		
 		sk_tree = sk_model.tree_
 
 		node_ids = [0]
