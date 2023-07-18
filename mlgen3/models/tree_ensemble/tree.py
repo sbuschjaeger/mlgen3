@@ -92,7 +92,7 @@ class Tree(Model):
 				self.n_classes = tmp.n_classes
 		else:
 			raise ValueError("Unrecognizued model is passed to Tree.init_from_fitted(model). Currently implemented are sklearn.tree.DecisionTreeClassifier and weka.classifiers.trees.J48!")
-		self.populate_path_probs()
+		#self.populate_path_probs()
 
 	def predict_proba(self,X):
 		"""Applies this tree to the given data and provides the predicted probabilities for each example in X.
@@ -215,7 +215,7 @@ class Tree(Model):
 		tree.nodes = []
 		tree.head = None
 		tree.n_classes = sk_model.n_classes_
-		
+
 		sk_tree = sk_model.tree_
 
 		node_ids = [0]

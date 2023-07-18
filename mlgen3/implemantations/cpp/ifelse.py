@@ -7,7 +7,6 @@ from .ensemble import Ensemble
 class IfElse(Ensemble):
 
     def __init__(self, model, feature_type="int", label_type="int"):
-        # TODO assert that model is either Tree or Forest object
         super().__init__(model,feature_type,label_type)
 
     def implement_member(self, number): #returned

@@ -17,7 +17,12 @@ class Ensemble(Implementation):
 
     def __init__(self, model, feature_type="int", label_type="int"):
         super().__init__(feature_type, label_type)
-        assert isinstance(model, (Tree,Forest)), f"Ensemble currently only supportes Tree and Forest models, but you supplied {model}"
+        
+        if model is None:
+            raise ValueError("Receive model that was None. Please provide a valid model")
+
+        if not isinstance(model, (Tree,Forest)):
+            raise ValueError(f"Ensemble currently only supportes Tree and Forest models, but you supplied {model}")
 
         if isinstance(model, Tree):
             self.model = Forest(model.original_model)

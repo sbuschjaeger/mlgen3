@@ -8,12 +8,14 @@ from .ensemble import Ensemble
 class Native(Ensemble):
 
 	def __init__(self, model, feature_type="int", label_type="int", int_type=None, reorder_nodes = False, set_size = 8, force_cacheline = False):
-		# TODO assert that model is either Tree or Forest object
 		super().__init__(model,feature_type,label_type)
 		self.reorder_nodes = reorder_nodes
 		self.set_size = set_size
 		self.force_cacheline = force_cacheline
 		self.int_type = int_type
+
+		if reorder_nodes and (set_size is None or set_size <= 0):
+			raise ValueError("If you want to reorder nodes, please give a valid set size!")
 
 	def reorder(self, model, set_size = 8, force_cacheline = False, **kwargs):
 		"""Extracts a list of inner_nodes and leaf_nodes from the model while storing additional left_is_leaf / right_is_leaf / id fields in the inner_nodes for the code generation. The left_is_leaf/right_is_leaf fields indicate if the left/right child of an inner node is a leaf note, whereas the id field can be used to access the correct index in the array, e.g. by using node.leftChild.id. This method tries to place nodes in consecutive order which have a maximum probability to be executed together. This basically implements algorithm 2 from the given reference.
@@ -163,6 +165,7 @@ class Native(Ensemble):
 			header = f"std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &x)"
 
 		if self.reorder_nodes:
+			tree.populate_path_probs()
 			inner_nodes, leaf_nodes = self.reorder(tree, self.set_size, self.force_cacheline)
 		else:
 			inner_nodes, leaf_nodes = self.get_nodes(tree)
@@ -177,23 +180,28 @@ class Native(Ensemble):
 			else:
 				self.int_type = "unsigned long"
 		
-		node_struct = f"""
-			struct Node {{
-				{self.int_type} feature;
-				{self.feature_type} split;
-				bool left_is_leaf;
-				bool right_is_leaf;
-				{self.int_type} left;
-				{self.int_type} right;
-			}};
-		""".strip()
+		if number is None or number == 0:
+			node_struct = f"""
+				struct Node {{
+					{self.int_type} feature;
+					{self.feature_type} split;
+					bool left_is_leaf;
+					bool right_is_leaf;
+					{self.int_type} left;
+					{self.int_type} right;
+				}};
+			""".strip()
+		else:
+			node_struct = ""
+
+		suffix = "_" + str(number) if number is not None else ""
 
 		preds = ",".join([str(list(n.prediction)).replace("[", "{").replace("]","}") for n in leaf_nodes])
-		pred_array = f"constexpr {self.label_type} predictions[{len(leaf_nodes)}][{tree.n_classes}] = {{{preds}}};"
+		pred_array = f"constexpr {self.label_type} predictions{suffix}[{len(leaf_nodes)}][{tree.n_classes}] = {{{preds}}};"
 
 		if len(inner_nodes) > 0:
 			nodes = ",".join([f"{{ {n.feature},{n.split},{n.left_is_leaf},{n.right_is_leaf},{n.leftChild.id},{n.rightChild.id} }}" for n in inner_nodes])
-			nodes_array = f"constexpr Node nodes[{len(inner_nodes)}] = {{{nodes}}};"
+			nodes_array = f"constexpr Node nodes{suffix}[{len(inner_nodes)}] = {{{nodes}}};"
 		else:
 			nodes_array = ""
 
@@ -201,26 +209,26 @@ class Native(Ensemble):
 			core_loop = f"""
 				{self.int_type} i = 0;
 				while(true) {{
-					if (x[nodes[i].feature] <= nodes[i].split){{
-						if (nodes[i].left_is_leaf) {{
-							i = nodes[i].left;
+					if (x[nodes{suffix}[i].feature] <= nodes{suffix}[i].split){{
+						if (nodes{suffix}[i].left_is_leaf) {{
+							i = nodes{suffix}[i].left;
 							break;
 						}} else {{
-							i = nodes[i].left;
+							i = nodes{suffix}[i].left;
 						}}
 					}} else {{
-						if (nodes[i].right_is_leaf) {{
-							i = nodes[i].right;
+						if (nodes{suffix}[i].right_is_leaf) {{
+							i = nodes{suffix}[i].right;
 							break;
 						}} else {{
-							i = nodes[i].right;
+							i = nodes{suffix}[i].right;
 						}}
 					}}
 				}}
-				return std::vector<{self.label_type}>(predictions[i], predictions[i]+{tree.n_classes});
+				return std::vector<{self.label_type}>(predictions{suffix}[i], predictions{suffix}[i]+{tree.n_classes});
 			"""
 		else:
-			core_loop = f"return std::vector<{self.label_type}>(predictions[0]+{tree.n_classes});"
+			core_loop = f"return std::vector<{self.label_type}>(predictions{suffix}[0]+{tree.n_classes});"
 
 		code = f"""
 			{node_struct}

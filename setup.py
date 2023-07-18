@@ -10,5 +10,8 @@ setup(name='mlgen3',
     packages=find_packages('.'),
     install_requires=[
         'numpy', 'pandas', 'tqdm', 'importlib_resources'
-    ]
+    ],
+    extras_require = {
+        'cpp': ["astyle-py"]
+    }
 )
