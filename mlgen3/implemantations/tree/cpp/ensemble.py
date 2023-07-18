@@ -7,7 +7,7 @@ import textwrap
 from mlgen3.models.tree_ensemble.forest import Forest
 from mlgen3.models.tree_ensemble.tree import Tree
 
-from ..implementation import Implementation
+from ...implementation import Implementation
 
 class Ensemble(Implementation):
 
@@ -16,10 +16,7 @@ class Ensemble(Implementation):
         pass
 
     def __init__(self, model, feature_type="int", label_type="int"):
-        super().__init__(feature_type, label_type)
-        
-        if model is None:
-            raise ValueError("Receive model that was None. Please provide a valid model")
+        super().__init__(model, feature_type, label_type)
 
         if not isinstance(model, (Tree,Forest)):
             raise ValueError(f"Ensemble currently only supportes Tree and Forest models, but you supplied {model}")

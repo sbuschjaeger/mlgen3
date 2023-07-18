@@ -8,8 +8,8 @@ import unittest
 from sklearn import datasets
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import accuracy_score
-from mlgen3.implemantations.cpp.ifelse import IfElse
-from mlgen3.implemantations.cpp.native import Native
+from mlgen3.implemantations.tree.cpp.ifelse import IfElse
+from mlgen3.implemantations.tree.cpp.native import Native
 from mlgen3.materializer.linuxcppstandalone import LinuxCPPStandalone
 
 from mlgen3.models.tree_ensemble.tree import Tree
@@ -46,24 +46,23 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
         for x in dataset:
             ypred.append(dt.classify_instance(x))
         
-        tree_acc = accuracy_score(ypred, self.y)
+        dt_acc = accuracy_score(ypred, self.y)
         
         tree = Tree(dt)
         scores = tree.score(self.X,self.y)
         tree_acc = scores["Accuracy"]
-        self.assertAlmostEqual(tree_acc, tree_acc, places=3)
+        self.assertAlmostEqual(dt_acc, tree_acc, places=3)
 
         jvm.stop()
 
     def test_from_scikitlearn(self):
         for dt in self.dts:
-
             tree = Tree(dt)
             scores = tree.score(self.X,self.y)
             tree_acc = scores["Accuracy"]
-            tree_acc = accuracy_score(dt.predict(self.X), self.y)
+            dt_acc = accuracy_score(dt.predict(self.X), self.y)
 
-            self.assertAlmostEqual(tree_acc, tree_acc, places=3)
+            self.assertAlmostEqual(dt_acc, tree_acc, places=3)
 
     def test_ifelse_linuxstandalone(self):
         for dt in self.dts:

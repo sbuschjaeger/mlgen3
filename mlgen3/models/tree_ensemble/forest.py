@@ -20,7 +20,6 @@ class Forest(Model):
 			self.init_from_fitted(model)
 
 	def init_from_fitted(self, original_model):
-		
 		# TODO ADD different models here
 		tmp = Forest.from_sklearn(original_model)
 		self.trees = tmp.trees
