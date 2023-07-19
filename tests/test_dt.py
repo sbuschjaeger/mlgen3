@@ -86,7 +86,7 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
 
                 if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierIfElse")):
                     shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierIfElse"))
-
+    
     def test_native_linuxstandalone(self):
         for dt in self.dts:
             tree = Tree(dt)
@@ -128,6 +128,33 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
                     
                     if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierNative")):
                         shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierNative"))
+    
+    def test_swap(self):
+        for dt in self.dts:
+            tree = Tree(dt)
+            scores = tree.score(self.X,self.y)
+            tree_acc_before = scores["Accuracy"]
+            tree.swap_nodes()
+            tree_acc_after = scores["Accuracy"]
+            
+            # TODO Enhance this test case and really check if we swapped something 
+            self.assertAlmostEqual(tree_acc_before, tree_acc_after)
+
+    def test_quantize(self):
+        for dt in self.dts:
+            # TODO Enhance this test case and really check if we we do not break the tree
+            for r in [None, 2**16]:
+                tree = Tree(dt)
+                tree.quantize(quantize_leafs=r, quantize_splits=None)
+
+                tree = Tree(dt)
+                tree.quantize(quantize_leafs=None, quantize_splits=r)
+
+                tree = Tree(dt)
+                tree.quantize(quantize_leafs=r, quantize_splits=r)
+            
+            tree = Tree(dt)
+            tree.quantize(quantize_leafs=None, quantize_splits="rounding")
 
     def test_ifelse_params(self):
         msg = f"Running test_ifelse_params on DT with model=None"

@@ -12,6 +12,7 @@ setup(name='mlgen3',
         'numpy', 'pandas', 'tqdm', 'importlib_resources'
     ],
     extras_require = {
-        'cpp': ["astyle-py"]
+        'cpp': ["astyle-py"],
+        'pruning': ["PyPruning @ git+ssh://git@github.com/sbuschjaeger/PyPruning.git"]
     }
 )

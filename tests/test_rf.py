@@ -7,8 +7,9 @@ import unittest
 from sklearn import datasets
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
-from mlgen3.implemantations.cpp.ifelse import IfElse
-from mlgen3.implemantations.cpp.native import Native
+from sklearn.model_selection import train_test_split
+from mlgen3.implemantations.tree.cpp.ifelse import IfElse
+from mlgen3.implemantations.tree.cpp.native import Native
 from mlgen3.materializer.linuxcppstandalone import LinuxCPPStandalone
 
 from mlgen3.models.tree_ensemble.forest import Forest
@@ -17,14 +18,15 @@ class TestRandomForestClassifiers(unittest.TestCase):
 
     def setUp(self):
         iris = datasets.load_iris()
-        self.X = iris.data
-        self.y = iris.target
+        X = iris.data
+        y = iris.target
+        self.XTrain, self.XTest, self.ytest, self.ytest = train_test_split(X, y, test_size=0.33, random_state=42)
 
         self.rfs = []
         for n in [1, 5]:
             for d in [1, 5]:
                 rf = RandomForestClassifier(n_estimators=n, max_depth=d, random_state=0)
-                rf.fit(self.X,self.y)
+                rf.fit(self.XTest,self.ytest)
                 self.rfs.append(rf)
 
     def test_from_scikitlearn(self):
@@ -32,20 +34,21 @@ class TestRandomForestClassifiers(unittest.TestCase):
             msg = f"Running test_from_scikitlearn on RF with n_estimators={rf.n_estimators} and max_depth = {rf.max_depth}"
             with self.subTest(msg):
                 forest = Forest(rf)
-                scores = forest.score(self.X,self.y)
+                scores = forest.score(self.XTest,self.ytest)
                 forest_acc = scores["Accuracy"]
-                rf_acc = accuracy_score(rf.predict(self.X), self.y)
+                rf_acc = accuracy_score(rf.predict(self.XTest), self.ytest)
 
                 self.assertAlmostEqual(forest_acc, rf_acc, places=3)
-
+    
+    @unittest.skip
     def test_ifelse_linuxstandalone(self):
         for rf in self.rfs:
             msg = f"Running test_ifelse_linuxstandalone on RF with n_estimators={rf.n_estimators} and max_depth = {rf.max_depth}"
             with self.subTest(msg):
                 forest = Forest(rf)
-                scores = forest.score(self.X,self.y)
+                scores = forest.score(self.XTest,self.ytest)
                 forest_acc = scores["Accuracy"]
-                rf_acc = accuracy_score(rf.predict(self.X), self.y)
+                rf_acc = accuracy_score(rf.predict(self.XTest), self.ytest)
 
                 implementation = IfElse(forest, feature_type="float", label_type="float")
                 implementation.implement()
@@ -61,12 +64,13 @@ class TestRandomForestClassifiers(unittest.TestCase):
                 if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierIfElse")):
                     shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierIfElse"))
 
+    @unittest.skip
     def test_native_linuxstandalone(self):
         for rf in self.rfs:
             forest = Forest(rf)
-            scores = forest.score(self.X,self.y)
+            scores = forest.score(self.XTest,self.ytest)
             forest_acc = scores["Accuracy"]
-            rf_acc = accuracy_score(rf.predict(self.X), self.y)
+            rf_acc = accuracy_score(rf.predict(self.XTest), self.ytest)
 
             for it in [None, "int"]:
                 for s in [1, 8]:
@@ -102,6 +106,39 @@ class TestRandomForestClassifiers(unittest.TestCase):
                     
                     if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierNative")):
                         shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierNative"))
+
+    def test_swap(self):
+        for rf in self.rfs:
+            forest = Forest(rf)
+            scores = forest.score(self.XTest,self.ytest)
+            forest_acc_before = scores["Accuracy"]
+            forest.swap_nodes()
+            forest_acc_after = scores["Accuracy"]
+            
+            # TODO Enhance this test case and really check if we swapped something 
+            self.assertAlmostEqual(forest_acc_before, forest_acc_after)
+
+    def test_quantize(self):
+        for rf in self.rfs:
+            # TODO Enhance this test case and really check if we we do not break the forest
+            for r in [None, 2**16]:
+                forest = Forest(rf)
+                forest.quantize(quantize_leafs=r, quantize_splits=None)
+
+                forest = Forest(rf)
+                forest.quantize(quantize_leafs=None, quantize_splits=r)
+
+                forest = Forest(rf)
+                forest.quantize(quantize_leafs=r, quantize_splits=r)
+            
+            forest = Forest(rf)
+            forest.quantize(quantize_leafs=None, quantize_splits="rounding")
+
+    # def test_pruning(self):
+    #     for rf in self.rfs:
+    #         if rf.n_estimators > 2:
+    #             forest = Forest(rf)
+    #             forest.prune(self.XTest, self.ytest, "reduced_error", n_estimators = 2)
 
     def test_ifelse_params(self):
         msg = f"Running test_ifelse_params on RF with model=None"

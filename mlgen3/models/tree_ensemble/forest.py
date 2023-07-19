@@ -121,6 +121,25 @@ class Forest(Model):
 		#Compute some value
 		return {"Accuracy": accuracy}
 
+	def swap_nodes(self):
+		for t in self.trees:
+			t.swap_nodes()
+
+	def quantize(self, quantize_splits = None, quantize_leafs = None):
+		for t in self.trees:
+			t.quantize(quantize_splits=quantize_splits, quantize_leafs=quantize_leafs)
+
+	def prune(self, x_prune, y_prune, pruning_method, **kwargs):
+		"""Performs ensemble pruning on the given model given the data. Pruning is implemented via the PyPruning package (https://github.com/sbuschjaeger/PyPruning).
+		
+		The specific pruning method can be chosen via :code:`pruning_method` and all additional arguments are passed to this function. For more details see https://sbuschjaeger.github.io/PyPruning/html/papers.html
+		"""
+		from PyPruning.Papers import create_pruner
+
+		pruner = create_pruner(pruning_method, **kwargs)
+		n_classes = self.trees[0].n_classes
+		pruner.prune(x_prune, y_prune, self.trees, n_classes = n_classes)
+
 	def to_dict(self):
 		"""Stores this ensemble as a dictionary which can be loaded with :meth:`Ensemble.from_dict`.
 
