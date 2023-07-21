@@ -2,6 +2,9 @@ from sklearn.metrics import accuracy_score
 from math import ceil
 
 import numpy as np
+from mlgen3.models.nn.activations import Step
+
+from mlgen3.models.nn.batchnorm import BatchNorm
 from ..model import Model
 
 class NeuralNet(Model):
@@ -58,6 +61,32 @@ class NeuralNet(Model):
 
 	def init_from_fitted(self, original_model):
 		self.layers = original_model
+
+	def merge_bn_and_step(self):
+		"""Merges subsequent BatchNorm and Step layers into a new Step layer with adapted thresholds in a single pass. Currently there is no recursive merging applied.
+
+		TODO: Perform merging recursively. 
+
+		Args:
+			model (NeuralNet): The NeuralNet model.
+
+		Returns:
+			NeuralNet: The NeuralNet model with merged layers.
+		"""
+		# Merge BN + Step layers for BNNs
+		new_layers = []
+		last_layer = None
+		for layer_id, layer in enumerate(self.layers):
+			if last_layer is not None:
+				if isinstance(last_layer, BatchNorm) and isinstance(layer, Step):
+					layer.threshold = layer.threshold -last_layer.bias / last_layer.scale
+				else:
+					new_layers.append(last_layer)
+			last_layer = layer
+			
+		new_layers.append(last_layer)
+		self.layers = new_layers
+
 
 	def predict_proba(self,X):
 		"""Applies this NeuralNet to the given data and provides the predicted probabilities for each example in X. This function internally calls :code:`onnxruntime.InferenceSession` for inference.. 

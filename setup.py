@@ -13,6 +13,7 @@ setup(name='mlgen3',
     ],
     extras_require = {
         'cpp': ["astyle-py"],
-        'pruning': ["PyPruning @ git+ssh://git@github.com/sbuschjaeger/PyPruning.git"]
+        'pruning': ["PyPruning @ git+ssh://git@github.com/sbuschjaeger/PyPruning.git"],
+        'neuralnet': ["torch", "torchvision", "torchaudio", "torchinfo"]
     }
 )

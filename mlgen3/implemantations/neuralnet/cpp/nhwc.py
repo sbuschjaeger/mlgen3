@@ -1,5 +1,7 @@
+import numpy as np
+
 from mlgen3.implemantations.implementation import Implementation
-from mlgen3.models.nn.activations import Sign, Sigmoid, Relu
+from mlgen3.models.nn.activations import Sign, Sigmoid, Relu, Step
 from mlgen3.models.nn.linear import Linear
 from mlgen3.models.nn.batchnorm import BatchNorm
 
@@ -13,6 +15,7 @@ class NHWC(Implementation):
 	def implement(self):
 		alloc = ""
 		code = ""
+		header = ""
 
 		for lid, l in enumerate(self.model.layers):
 			# TODO This only works for 1d inputs at the moment. 
@@ -36,6 +39,8 @@ class NHWC(Implementation):
 					}}
 				"""
 			elif isinstance(l, Sigmoid):
+				header += "#include <cmath>\n"
+
 				code += f"""
 					for (unsigned int i = 0; i < {l.output_shape}; ++i) {{
 						layer_{lid}[i] = 1 / (1 + std::exp(-{input}[i]));
@@ -53,7 +58,7 @@ class NHWC(Implementation):
 
 				tmp_bias = str(l.bias.tolist()).replace("[", "{").replace("]","}")
 				bias_array = f"constexpr {self.internal_type} layer_{lid}_bias[{len(l.bias)}] = {tmp_bias};"
-
+				# TODO add alinged
 				alloc += weight_array + "\n"
 				alloc += bias_array + "\n"
 
@@ -82,8 +87,28 @@ class NHWC(Implementation):
 						layer_{lid}[d] = {input}[d] * layer_{lid}_scale[d] + layer_{lid}_bias[d];
 					}}
 				"""
+			elif isinstance(l, Step):
+				if l.threshold_is_high:
+					comp = ">="
+				else:
+					comp = ">"
+
+				if isinstance(l.threshold, (list, np.ndarray)):
+					tmp_threshold = str(l.threshold.tolist()).replace("[", "{").replace("]","}")
+					threshold_array = f"constexpr {self.internal_type} layer_{lid}_threshold[{len(l.threshold)}] = {tmp_threshold};"
+					alloc += threshold_array + "\n"
+
+					threshold = f"layer_{lid}_threshold[i]"
+				else:
+					threshold = l.threshold
+
+				code += f"""
+					for (unsigned int i = 0; i < {l.output_shape}; i++) {{
+						layer_{lid}[i] = {input}[i] {comp} {threshold} ? {l.high} : {l.low};
+					}}
+				"""
 			else:
-				pass
+				raise ValueError(f"Layer of {l} is currently not supported by cpp.nhwc. Cannot generate code!")
 		
 		self.code = f"""
 			#include "model.h"
@@ -97,5 +122,7 @@ class NHWC(Implementation):
 		self.header = f"""
 			#pragma once
 			#include <vector>
+			{header}
+
 			std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &x);
 		""".strip()

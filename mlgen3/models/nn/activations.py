@@ -53,55 +53,66 @@ class Relu(Layer):
     def __call__(self, x):
         return np.maximum(0, x)
 
-# class Step(Layer):
-#     """Step Layer
+class Step(Layer):
+    """Step Layer
 
-#         f(x) = high  for x > threshold
-#         f(x) = high  for x = threshold and threshold_is_high
-#         f(x) = low   for x = threshold and not threshold_is_high
-#         f(x) = low   for x < threshold
+        f(x) = high  for x > threshold
+        f(x) = high  for x = threshold and threshold_is_high
+        f(x) = low   for x = threshold and not threshold_is_high
+        f(x) = low   for x < threshold
 
-#     This is the Activation Layer in a binary neural net as it has only two distinct outputs (in comparison
-#     to the three outputs of Sign Layers). There is no official support for Step Layers in ONNX.
-#     To generate a net with Step Layers, use the following ONNX structure:
+    This is the Activation Layer in a binary neural net as it has only two distinct outputs (in comparison
+    to the three outputs of Sign Layers). There is no official support for Step Layers in ONNX.
+    To generate a net with Step Layers, use the following ONNX structure:
 
-#         Greater + Where or
-#         Less + Where
+        Greater + Where or
+        Less + Where
 
-#     The code generator will convert this into a Step Layer if the binary argument is passed.
+    The code generator will convert this into a Step Layer if the binary argument is passed.
 
-#     Example in PyTorch:
+    Example in PyTorch:
 
-#         x = torch.where(x > 0, torch.tensor([1.0]), torch.tensor([-1.0]))
+        x = torch.where(x > 0, torch.tensor([1.0]), torch.tensor([-1.0]))
 
-#     When a BatchNormalization Layer follows directly afterwards, the scales and biases are embedded as thresholds
-#     of the Step Layer. The following holds since x is an integer:
+    When a BatchNormalization Layer follows directly afterwards, the scales and biases are embedded as thresholds
+    of the Step Layer. The following holds since x is an integer:
 
-#         x * s - b > 0
-#         x > int(b / s)
+        x * s - b > 0
+        x > int(b / s)
 
-#     The output is directly packed into ints of size binary_word_size. This is done by setting each bit individually.
-#     The following sets the c'th leftmost bit to 1 or 0:
+    The output is directly packed into ints of size binary_word_size. This is done by setting each bit individually.
+    The following sets the c'th leftmost bit to 1 or 0:
 
-#         output |= (1U << ((binary_word_size-1) - c % binary_word_size))
-#         output &= ~(1U << ((binary_word_size-1) - c % binary_word_size))
+        output |= (1U << ((binary_word_size-1) - c % binary_word_size))
+        output &= ~(1U << ((binary_word_size-1) - c % binary_word_size))
 
-#     Attributes:
-#         input_shape = [N, C, H, W]: The shape of the input tensor
-#         output_shape = [N, C, H, W]: The shape of the resulting output tensor, must match the input shape
-#         threshold: The threshold, can be scalar or numpy array
-#         low: Value selected at indices where x < threshold
-#         high: Value selected at indices where x > threshold
-#         threshold_is_high: Whether high value is selected where x = threshold
-#     """
+    Attributes:
+        input_shape = [N, C, H, W]: The shape of the input tensor
+        output_shape = [N, C, H, W]: The shape of the resulting output tensor, must match the input shape
+        threshold: The threshold, can be scalar or numpy array
+        low: Value selected at indices where x < threshold
+        high: Value selected at indices where x > threshold
+        threshold_is_high: Whether high value is selected where x = threshold
+    """
 
-#     def __init__(self, input_shape, threshold, low, high):
-#         super().__init__(input_shape, input_shape, "step")
+    def __init__(self, input_shape, threshold=0, low=-1, high=1):
+        super().__init__(input_shape, input_shape)
 
-#         self.threshold = threshold
-#         self.low = low 
-#         self.high = high
-#         self.threshold_is_high = True
+        self.threshold = threshold
+        self.low = low 
+        self.high = high
+        self.threshold_is_high = True
+
+    def __call__(self, x):
+
+        if self.threshold_is_high:    
+            x[x >= self.threshold] = self.high
+            x[x < self.threshold] = self.low
+        else:
+            x[x > self.threshold] = self.high
+            x[x <= self.threshold] = self.low
+        
+        return x
 
 # class Softmax(Layer):
 #     """Softmax (normalized exponential)

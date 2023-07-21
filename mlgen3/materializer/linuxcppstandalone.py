@@ -22,6 +22,7 @@ class LinuxCPPStandalone(Materializer):
         # TODO Add scoring against reference implementation 
 
     def beautify(self, s):
+        # TODO this seems to die sometimes, especially when the c++-code contains errors 
         try:
             from astyle_py import Astyle
             formatter = Astyle()
