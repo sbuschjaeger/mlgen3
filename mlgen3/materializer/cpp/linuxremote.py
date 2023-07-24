@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 import numpy as np
@@ -29,62 +30,54 @@ class LinuxRemote(LinuxStandalone):
         except ImportError:
             return s
 
-    def materialize(self, path):
-        # I dont why we need to call this here. This does not really make sense? Why do we need to store the path? Simply for the deploy step? 
-        # if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestLinearClassifierNative")):
-        #     shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestLinearClassifierNative"))
-
-        self.tmpdir = tempfile.TemporaryDirectory()
-        super().materialize(self.tmpdir.name)
-        self.path = path
-
-        # with open(os.path.join(self.tmpdir.name, self.filename + ".cpp"), 'w') as f:
-        #     f.write(self.beautify(self.implementation.code))
-
-        # with open(os.path.join(self.tmpdir.name, self.filename + ".h"), 'w') as f:
-        #     f.write(self.beautify(self.implementation.header))
-    
     def deploy(self, verbose=False):
-        tmp_path = self.path
-        assert self.tmpdir is not None, "Did not find any code. Did you call materialize() beforehand?"
-        self.path = self.tmpdir.name
         super().deploy()
 
-        self.path = tmp_path
         #if self.remote_compile:
         cfg = "" if self.ssh_config is None else f"-F {self.ssh_config}"
         create_res = subprocess.run(f"ssh {cfg} {self.hostname} 'mkdir -p {os.path.dirname(self.path)}'", capture_output=True, text=True, shell=True)
         if verbose:
-            print(f"ssh {cfg} 'mkdir {self.path}'")
+            print(f"Running ssh {cfg} 'mkdir {self.path}'")
             print(f"stdout: \n{create_res.stdout}")
             print(f"stderr: \n{create_res.stderr}")
 
-        scp_res = subprocess.run(f"scp -r {cfg} {self.tmpdir.name} {self.hostname}:{self.path}", capture_output=True, text=True, shell=True)
-        if verbose:
-            print(f"scp {self.ssh_config} {self.tmpdir.name} {self.hostname}:{self.path}")
-            print(f"stdout: \n{scp_res.stdout}")
-            print(f"stderr: \n{scp_res.stderr}")
+        # scp_res = subprocess.run(f"scp -r {cfg} {self.path} {self.hostname}:{self.path}", capture_output=True, text=True, shell=True)
+        # if verbose:
+        #     print(f"Running scp -r {cfg} {self.path} {self.hostname}:{self.path}")
+        #     print(f"stdout: \n{scp_res.stdout}")
+        #     print(f"stderr: \n{scp_res.stderr}")
         
     def run(self, verbose = False):
         cfg = "" if self.ssh_config is None else f"-F {self.ssh_config}"
         if self.remote_compile:
+            scp_res = subprocess.run(f"scp -r {cfg} {self.path} {self.hostname}:{self.path}", capture_output=True, text=True, shell=True)
+            if verbose:
+                print(f"Running scp -r {cfg} {self.path} {self.hostname}:{self.path}")
+                print(f"stdout: \n{scp_res.stdout}")
+                print(f"stderr: \n{scp_res.stderr}")
+
             make_res = subprocess.run(f"ssh {cfg} {self.hostname} 'cd {self.path} && make && exit'", capture_output=True, text=True, shell=True)
             if verbose:
-                print(f"ssh {cfg} {self.hostname} 'cd {self.path} && make && exit'")
+                print(f"Running ssh {cfg} {self.hostname} 'cd {self.path} && make && exit'")
                 print(f"stdout: \n{make_res.stdout}")
                 print(f"stderr: \n{make_res.stderr}")
         else:
-            make_res = subprocess.run(f"cd {self.tmpdir.name} && make", capture_output=True, text=True, shell=True)
+            make_res = subprocess.run(f"cd {self.path} && make", capture_output=True, text=True, shell=True)
             if verbose:
                 print(f"Running cd {self.path} && make")
                 print(f"stdout: \n{make_res.stdout}")
                 print(f"stderr: \n{make_res.stderr}")
-        
+
+            scp_res = subprocess.run(f"scp -r {cfg} {self.path} {self.hostname}:{self.path}", capture_output=True, text=True, shell=True)
+            if verbose:
+                print(f"Running scp -r {cfg} {self.path} {self.hostname}:{self.path}")
+                print(f"stdout: \n{scp_res.stdout}")
+                print(f"stderr: \n{scp_res.stderr}")
 
         run_res = subprocess.run(f"ssh {cfg} {self.hostname} 'cd {self.path} && ./{self.filename} testing.csv 2'", capture_output=True, text=True, shell=True)
         
         if verbose:
-            print(f"ssh {cfg} {self.hostname} 'cd {self.path} && ./{self.filename} testing.csv 2'")
+            print(f"Running ssh {cfg} {self.hostname} 'cd {self.path} && ./{self.filename} testing.csv 2'")
             print(f"stdout: \n{run_res.stdout}")
             print(f"stderr: \n{run_res.stderr}")
 
@@ -96,3 +89,9 @@ class LinuxRemote(LinuxStandalone):
                 metrics[l[0]] = l[1].split(" ")[1]
         
         return metrics
+
+    def clean(self):
+        if self.path is not None and os.path.exists(self.path):
+            cfg = "" if self.ssh_config is None else f"-F {self.ssh_config}"
+            make_res = subprocess.run(f"ssh {cfg} {self.hostname} 'rm -r {self.path}'", capture_output=True, text=True, shell=True)
+            shutil.rmtree(self.path)

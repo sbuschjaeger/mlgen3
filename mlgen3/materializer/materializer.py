@@ -20,3 +20,7 @@ class Materializer(ABC):
     @abstractmethod
     def run(self):
         pass
+    
+    @abstractmethod
+    def clean(self):
+        pass

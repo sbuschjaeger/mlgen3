@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import numpy as np
 import pandas as pd
@@ -130,3 +131,7 @@ class LinuxStandalone(Materializer):
                 metrics[l[0]] = l[1].split(" ")[1]
         
         return metrics
+
+    def clean(self):
+        if self.path is not None and os.path.exists(self.path):
+            shutil.rmtree(self.path)
