@@ -10,7 +10,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import accuracy_score
 from mlgen3.implemantations.tree.cpp.ifelse import IfElse
 from mlgen3.implemantations.tree.cpp.native import Native
-from mlgen3.materializer.linuxcppstandalone import LinuxCPPStandalone
+from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 
 from mlgen3.models.tree_ensemble.tree import Tree
 import weka.core.jvm as jvm
@@ -76,7 +76,7 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
                 implementation = IfElse(tree, feature_type="float", label_type="float")
                 implementation.implement()
                 
-                materializer=LinuxCPPStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
+                materializer=LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
                 materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierIfElse"))
                 materializer.deploy() 
                 output = materializer.run(True) 
@@ -102,7 +102,7 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
                             implementation = Native(tree, feature_type="float", label_type="float", int_type=it, reorder_nodes=True, set_size=s, force_cacheline=fc)
                             implementation.implement()
                             
-                            materializer=LinuxCPPStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
+                            materializer=LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
                             materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierNative"))
                             materializer.deploy() 
                             output = materializer.run(True) 
@@ -118,7 +118,7 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
                     implementation = Native(tree, feature_type="float", label_type="float", reorder_nodes=False, int_type=it)
                     implementation.implement()
                     
-                    materializer = LinuxCPPStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
+                    materializer = LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
                     materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierNative"))
                     materializer.deploy() 
                     output = materializer.run(True) 

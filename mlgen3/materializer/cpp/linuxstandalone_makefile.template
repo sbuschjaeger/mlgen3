@@ -1,4 +1,4 @@
-COMPILER = g++
+COMPILER = {compiler}
 FLAGS = -std=c++17 -Wall -O3 -funroll-loops -ftree-vectorize
 
 all:

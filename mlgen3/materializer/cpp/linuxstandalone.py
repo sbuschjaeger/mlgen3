@@ -4,18 +4,19 @@ import numpy as np
 import pandas as pd
 from importlib_resources import files
 
-from .materializer import Materializer
+from ..materializer import Materializer
 
-class LinuxCPPStandalone(Materializer):
 
+class LinuxStandalone(Materializer):
     #Has a _code variable with <label_type> predict(<feature_type>[] pX);
 
-    def __init__(self, implementation, filename = None, measure_accuracy=False, measure_time=False, measure_perf=False):
+    def __init__(self, implementation, filename = None, measure_accuracy=False, measure_time=False, measure_perf=False, compiler="g++"):
         super().__init__(implementation)
         self.measure_accuracy = measure_accuracy
         self.measure_time = measure_time
         self.measure_perf = measure_perf
         self.filename = "model" if filename is None else filename
+        self.compiler = compiler
 
         # TODO Implement perf performance tests
         assert measure_perf is False, "Perf performance tests are currently not implemented."
@@ -45,7 +46,7 @@ class LinuxCPPStandalone(Materializer):
             f.write(self.beautify(self.implementation.header))
 
     def generate_tests(self):
-        main_str = files('mlgen3.materializer').joinpath('linuxcppstandalone_main.template').read_text()
+        main_str = files('mlgen3.materializer.cpp').joinpath('linuxstandalone_main.template').read_text()
         
         start_measurement = ""
         end_measurement = ""
@@ -92,8 +93,8 @@ class LinuxCPPStandalone(Materializer):
     def deploy(self):
         assert self.measure_perf or self.measure_accuracy or self.measure_time, "Cannot deploy model since no test code was generated for this implementation. Please set at-least on of the following arguments to true: measure_perf, measure_accuracy or measure_time"
 
-        makefile_str = files('mlgen3.materializer').joinpath('linuxcppstandalone_makefile.template').read_text()
-        makefile_str = makefile_str.replace("{filename}", self.filename)
+        makefile_str = files('mlgen3.materializer.cpp').joinpath('linuxstandalone_makefile.template').read_text()
+        makefile_str = makefile_str.replace("{filename}", self.filename).replace("{compiler}", self.compiler)
 
         with open(os.path.join(self.path, "Makefile"), 'w') as f:
             f.write(makefile_str)

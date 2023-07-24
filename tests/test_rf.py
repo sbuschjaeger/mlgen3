@@ -10,7 +10,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
 from mlgen3.implemantations.tree.cpp.ifelse import IfElse
 from mlgen3.implemantations.tree.cpp.native import Native
-from mlgen3.materializer.linuxcppstandalone import LinuxCPPStandalone
+from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 
 from mlgen3.models.tree_ensemble.forest import Forest
 
@@ -53,7 +53,7 @@ class TestRandomForestClassifiers(unittest.TestCase):
                 implementation = IfElse(forest, feature_type="float", label_type="float")
                 implementation.implement()
                 
-                materializer=LinuxCPPStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
+                materializer=LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
                 materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierIfElse"))
                 materializer.deploy() 
                 output = materializer.run(True) 
@@ -80,7 +80,7 @@ class TestRandomForestClassifiers(unittest.TestCase):
                             implementation = Native(forest, feature_type="float", label_type="float", int_type=it, reorder_nodes=True, set_size=s, force_cacheline=fc)
                             implementation.implement()
                             
-                            materializer=LinuxCPPStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
+                            materializer=LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
                             materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierNative"))
                             materializer.deploy() 
                             output = materializer.run(True) 
@@ -96,7 +96,7 @@ class TestRandomForestClassifiers(unittest.TestCase):
                     implementation = Native(forest, feature_type="float", label_type="float", reorder_nodes=False, int_type=it)
                     implementation.implement()
                     
-                    materializer = LinuxCPPStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
+                    materializer = LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
                     materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierNative"))
                     materializer.deploy() 
                     output = materializer.run(True) 

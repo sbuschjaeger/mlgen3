@@ -9,7 +9,7 @@ from sklearn import datasets
 from sklearn.metrics import accuracy_score
 from mlgen3.implemantations.neuralnet.cpp.bnn import BNN
 from mlgen3.implemantations.neuralnet.cpp.nhwc import NHWC
-from mlgen3.materializer.linuxcppstandalone import LinuxCPPStandalone
+from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 from mlgen3.models.nn.batchnorm import BatchNorm 
 from mlgen3.models.nn.activations import Relu, Sigmoid, Sign, Step
 from mlgen3.models.nn.linear import Linear
@@ -166,7 +166,7 @@ class TestNeuralNetwork(unittest.TestCase):
         implementation = BNN(net, feature_type="float", label_type="float")
         implementation.implement()
         
-        materializer = LinuxCPPStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
+        materializer = LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
         materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestMLPBNN"))
         materializer.deploy() 
         output = materializer.run(True) 
@@ -197,7 +197,7 @@ class TestNeuralNetwork(unittest.TestCase):
         implementation = NHWC(net, feature_type="float", label_type="float",internal_type="float")
         implementation.implement()
         
-        materializer = LinuxCPPStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
+        materializer = LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
         materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestMLPNHWC"))
         materializer.deploy() 
         output = materializer.run(True) 

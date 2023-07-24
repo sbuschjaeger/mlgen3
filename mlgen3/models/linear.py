@@ -1,9 +1,6 @@
 # TODO REMOVE THIS DEPENDENCY?
 import numpy as np
-from sklearn.utils.validation import check_is_fitted
 from sklearn.metrics import accuracy_score
-from sklearn.tree import DecisionTreeClassifier, _tree
-from weka.classifiers import Classifier
 
 from .model import Model
 

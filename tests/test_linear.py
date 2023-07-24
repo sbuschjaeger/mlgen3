@@ -9,7 +9,7 @@ from sklearn import datasets
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from mlgen3.implemantations.linear.cpp.native import Native
-from mlgen3.materializer.linuxcppstandalone import LinuxCPPStandalone
+from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 from mlgen3.models.linear import Linear
 
 class TestLinearClassifiers(unittest.TestCase):
@@ -51,7 +51,7 @@ class TestLinearClassifiers(unittest.TestCase):
                     implementation = Native(lin_model, feature_type="float", label_type="float",internal_type=it)
                     implementation.implement()
                     
-                    materializer=LinuxCPPStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
+                    materializer=LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
                     materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestLinearClassifierNative"))
                     materializer.deploy() 
                     output = materializer.run(True) 
