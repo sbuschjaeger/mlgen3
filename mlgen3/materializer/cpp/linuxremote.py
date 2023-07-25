@@ -1,13 +1,8 @@
 import os
 import shutil
 import subprocess
-import tempfile
-import numpy as np
-import pandas as pd
-from importlib_resources import files
 
 from .linuxstandalone import LinuxStandalone
-#from linuxstandalone import LinuxStandalone
 
 class LinuxRemote(LinuxStandalone):
 
@@ -19,16 +14,6 @@ class LinuxRemote(LinuxStandalone):
         self.hostname = hostname
         self.ssh_config = ssh_config
         self.tmpdir = None
-
-    def beautify(self, s):
-        # TODO this seems to die sometimes, especially when the c++-code contains errors 
-        try:
-            from astyle_py import Astyle
-            formatter = Astyle()
-            formatter.set_options('--style=google --mode=c --delete-empty-lines')
-            return formatter.format(s)
-        except ImportError:
-            return s
 
     def deploy(self, verbose=False):
         super().deploy()
@@ -91,6 +76,7 @@ class LinuxRemote(LinuxStandalone):
         return metrics
 
     def clean(self):
+        super().clean()
         if self.path is not None and os.path.exists(self.path):
             cfg = "" if self.ssh_config is None else f"-F {self.ssh_config}"
             make_res = subprocess.run(f"ssh {cfg} {self.hostname} 'rm -r {self.path}'", capture_output=True, text=True, shell=True)

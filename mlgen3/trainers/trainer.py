@@ -2,13 +2,15 @@ from abc import ABC,abstractmethod
 
 class Trainer(ABC):
     def __init__(self):
-        pass
+        self.model = None
     
     @abstractmethod
-    def train(self, model):
+    def fit(self, model):
         pass
 
-    @abstractmethod
     def score(self):
-        pass
+        if self.model is not None:
+            return self.model.score()
+        else:
+            raise ValueError(f"There is not model to score associated with this trainer. Did you call train?")
     

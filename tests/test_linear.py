@@ -32,7 +32,7 @@ class TestLinearClassifiers(unittest.TestCase):
         for m in self.models:
             msg = f"Running test_from_scikitlearn on Linear with fit_intercept={m.fit_intercept}"
             with self.subTest(msg):
-                lin_model = Linear(m)
+                lin_model = Linear.from_sklearn(m)
                 scores = lin_model.score(self.X,self.y)
                 lin_model_acc = scores["Accuracy"]
                 sk_acc = accuracy_score(m.predict(self.X), self.y)
@@ -44,7 +44,7 @@ class TestLinearClassifiers(unittest.TestCase):
             for it in [None, "float"]:
                 msg = f"Running test_from_scikitlearn on Linear with fit_intercept={m.fit_intercept} and internal_type={it}"
                 with self.subTest(msg):
-                    lin_model = Linear(m)
+                    lin_model = Linear.from_sklearn(m)
                     scores = lin_model.score(self.X,self.y)
                     lin_model_acc = scores["Accuracy"]
                     sk_acc = accuracy_score(m.predict(self.X), self.y)
@@ -59,8 +59,7 @@ class TestLinearClassifiers(unittest.TestCase):
                     self.assertAlmostEqual(lin_model_acc, sk_acc, places=3)
                     self.assertAlmostEqual(float(output["Accuracy"]), sk_acc*100.0, places=3)
 
-                    if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestLinearClassifierNative")):
-                        shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestLinearClassifierNative"))
+                    materializer.clean()
         
 
     def test_native_params(self):

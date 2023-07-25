@@ -22,10 +22,11 @@ class Ensemble(Implementation):
             raise ValueError(f"Ensemble currently only supportes Tree and Forest models, but you supplied {model}")
 
         if isinstance(model, Tree):
-            self.model = Forest(model.original_model)
+            self.model = Forest()
             self.model.trees = [model]
             self.model.weights = [1.0]
 
+            self.original_model = model.original_model
             self.model.XTest = model.XTest
             self.model.YTest = model.YTest
             self.model.XTrain = model.XTrain

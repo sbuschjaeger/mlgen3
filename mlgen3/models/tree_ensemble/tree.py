@@ -1,16 +1,8 @@
-import json, os
 import numpy as np
 
 from functools import reduce
 
-
-# TODO REMOVE THIS DEPENDENCY?
-from sklearn.utils.validation import check_is_fitted
-from sklearn.metrics import accuracy_score
-from sklearn.tree import DecisionTreeClassifier, _tree
-from weka.classifiers import Classifier
-
-from ..model import Model
+from ..model import Model, PredcitionType
 
 def get_leaf_probs(node):
     """Get the class probabilities of the subtree at the given node. 
@@ -81,8 +73,9 @@ class Tree(Model):
 	"""
 	A Decision Tree implementation. There is nothing fancy going on here. It stores all nodes in an array :code:`self.nodes` and has a pointer :code:`self.head` which points to the root node of the tree. Per construction it is safe to assume that :code:`self.head = self.nodes[0]`. 
 	"""
-	def __init__(self, model):
-		super().__init__(model)
+
+	def __init__(self):
+		super().__init__(PredcitionType.CLASSIFICATION)
 		# Array of all nodes
 		self.nodes = []
 
@@ -91,28 +84,23 @@ class Tree(Model):
 
 		self.n_classes = None
 
-		# Check if the classifier is already fitted
-		# TODO Do we really want / need this?
-		if model is not None:
-			self.init_from_fitted(model)
-
-	def init_from_fitted(self, original_model):
-		if isinstance(original_model, DecisionTreeClassifier):
-			if hasattr(original_model, "tree_"):
-				tmp = Tree.from_sklearn(original_model)
-				self.nodes = tmp.nodes
-				self.head = tmp.head
-				self.n_classes = tmp.n_classes
-		elif isinstance(original_model, Classifier) and original_model.classname == "weka.classifiers.trees.J48":
-			# TODO Is there a better way to determine if this weka model has been build yet?
-			if str(original_model) != "No classifier built":
-				tmp = Tree.from_weka(original_model)
-				self.nodes = tmp.nodes
-				self.head = tmp.head
-				self.n_classes = tmp.n_classes
-		else:
-			raise ValueError("Unrecognizued model is passed to Tree.init_from_fitted(model). Currently implemented are sklearn.tree.DecisionTreeClassifier and weka.classifiers.trees.J48!")
-		#self.populate_path_probs()
+	# def init_from_fitted(self, original_model):
+	# 	if isinstance(original_model, DecisionTreeClassifier):
+	# 		if hasattr(original_model, "tree_"):
+	# 			tmp = Tree.from_sklearn(original_model)
+	# 			self.nodes = tmp.nodes
+	# 			self.head = tmp.head
+	# 			self.n_classes = tmp.n_classes
+	# 	elif isinstance(original_model, Classifier) and original_model.classname == "weka.classifiers.trees.J48":
+	# 		# TODO Is there a better way to determine if this weka model has been build yet?
+	# 		if str(original_model) != "No classifier built":
+	# 			tmp = Tree.from_weka(original_model)
+	# 			self.nodes = tmp.nodes
+	# 			self.head = tmp.head
+	# 			self.n_classes = tmp.n_classes
+	# 	else:
+	# 		raise ValueError("Unrecognizued model is passed to Tree.init_from_fitted(model). Currently implemented are sklearn.tree.DecisionTreeClassifier and weka.classifiers.trees.J48!")
+	# 	#self.populate_path_probs()
 
 	def predict_proba(self,X):
 		"""Applies this tree to the given data and provides the predicted probabilities for each example in X.
@@ -139,20 +127,14 @@ class Tree(Model):
 
 		return np.array(proba)
 
-	def score_model(self, x, y):
-		prediction = self.predict_proba(x).argmax(axis=1)
-		accuracy = accuracy_score(y, prediction)
-
-		#Compute some value
-		return {"Accuracy": accuracy}
-
 	@classmethod
 	def from_weka(cls, weka_model):
+		
 		if "-B" not in weka_model.to_dict()["options"]:
 			raise ValueError("The supplied weka tree was not trained with the '-B' option enabled. Currently we only support binary splits, so please supply '-B' before training your weka model.")
 
-		tree = Tree(None)
-		tree.model = weka_model
+		tree = Tree()
+		tree.original_model = weka_model
 		tree.nodes = []
 		weka_str = str(weka_model)
 
@@ -220,6 +202,8 @@ class Tree(Model):
 	
 	@classmethod
 	def from_sklearn(cls, sk_model, ensemble_type = None):
+		# TODO REMOVE THIS DEPENDENCY?
+		from sklearn.tree import _tree
 		"""Generates a new tree from an sklearn tree.
 
 		Args:
@@ -229,12 +213,13 @@ class Tree(Model):
 		Returns:
 			Tree: The newly generated tree.
 		"""
-		tree = Tree(None)
+		tree = Tree()
 		tree.model = sk_model
 		
 		tree.nodes = []
 		tree.head = None
 		tree.n_classes = sk_model.n_classes_
+		tree.original_model = sk_model
 
 		sk_tree = sk_model.tree_
 
@@ -304,6 +289,7 @@ class Tree(Model):
 		"""
 		tree = Tree()
 		tree.nodes = []
+		tree.original_model = data
 
 		nodes = [Node()]
 		tree.head = nodes[0]

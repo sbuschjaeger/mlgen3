@@ -1,11 +1,7 @@
-from sklearn.metrics import accuracy_score
-from math import ceil
-
-import numpy as np
 from mlgen3.models.nn.activations import Step
 
 from mlgen3.models.nn.batchnorm import BatchNorm
-from ..model import Model
+from ..model import Model, PredcitionType
 
 class NeuralNet(Model):
 	"""A (simplified) neural network model. This class currently supports feed-forward multi-layer perceptrons as well as feed-forward convnets. In detail the following operations are supported
@@ -34,7 +30,7 @@ class NeuralNet(Model):
 
 	**Important**: This class automatically merges "Constant -> Greater -> Constant -> Constant -> Where" operations into a single step layer. This is specifically designed to parse Binarized Neural Networks, but might be wrong for some types of networks. 
 	"""
-	def __init__(self, model):
+	def __init__(self):
 		"""Constructor of NeuralNet.
 
 		Args:
@@ -42,25 +38,15 @@ class NeuralNet(Model):
 			accuracy (float, optional): The accuracy of this tree on some test data. Can be used to verify the correctness of the implementation. Defaults to None.
 			name (str, optional): The name of this model. Defaults to "Model".
 		"""
-		super().__init__(model)
+		super().__init__(PredcitionType.CLASSIFICATION)
 		
 		self.layers = []
 
-		# Check if the classifier is already fitted
-		# TODO Do we really want / need this?
-		if model is not None:
-			self.init_from_fitted(model)
-
-
-	def score_model(self, x, y):
-		prediction = self.predict_proba(x).argmax(axis=1)
-		accuracy = accuracy_score(y, prediction)
-
-		#Compute some value
-		return {"Accuracy": accuracy}
-
-	def init_from_fitted(self, original_model):
-		self.layers = original_model
+	@classmethod
+	def from_layers(cls, layers):
+		model = NeuralNet()
+		model.layers = layers
+		return model
 
 	def merge_bn_and_step(self):
 		"""Merges subsequent BatchNorm and Step layers into a new Step layer with adapted thresholds in a single pass. Currently there is no recursive merging applied.

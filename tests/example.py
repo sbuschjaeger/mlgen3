@@ -30,6 +30,17 @@ x,y = get_dataset("adult")
 '''
 types: TestTrainSplit, CorssValidation
 '''
+
+
+trainer = TestTrainSplit()
+trainer = SKTrainer(RandomForestClassifier(max_depth=10,n_estimators=5))
+
+model = trainer.train(RandomForestClassifier(max_depth=10,n_estimators=5))
+
+
+model = Forest.from_sklearn(RandomForestClassifier(max_depth=10,n_estimators=5))
+model = Forest.from_weka(...)
+
 trainer = TestTrainSplit(x,y)
 model = Forest(RandomForestClassifier(max_depth=10, n_estimators=5)) 
 trainer.train(model)

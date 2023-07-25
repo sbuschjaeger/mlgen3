@@ -1,7 +1,4 @@
 from abc import ABC
-import inspect
-
-from mlgen3.models.tree_ensemble.tree import Tree
 from .ensemble import Ensemble
 
 class IfElse(Ensemble):

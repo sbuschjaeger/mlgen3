@@ -33,19 +33,18 @@ class TestRandomForestClassifiers(unittest.TestCase):
         for rf in self.rfs:
             msg = f"Running test_from_scikitlearn on RF with n_estimators={rf.n_estimators} and max_depth = {rf.max_depth}"
             with self.subTest(msg):
-                forest = Forest(rf)
+                forest = Forest.from_sklearn(rf)
                 scores = forest.score(self.XTest,self.ytest)
                 forest_acc = scores["Accuracy"]
                 rf_acc = accuracy_score(rf.predict(self.XTest), self.ytest)
 
                 self.assertAlmostEqual(forest_acc, rf_acc, places=3)
     
-    @unittest.skip
     def test_ifelse_linuxstandalone(self):
         for rf in self.rfs:
             msg = f"Running test_ifelse_linuxstandalone on RF with n_estimators={rf.n_estimators} and max_depth = {rf.max_depth}"
             with self.subTest(msg):
-                forest = Forest(rf)
+                forest = Forest.from_sklearn(rf)
                 scores = forest.score(self.XTest,self.ytest)
                 forest_acc = scores["Accuracy"]
                 rf_acc = accuracy_score(rf.predict(self.XTest), self.ytest)
@@ -61,13 +60,13 @@ class TestRandomForestClassifiers(unittest.TestCase):
                 self.assertAlmostEqual(forest_acc, rf_acc, places=3)
                 self.assertAlmostEqual(float(output["Accuracy"]), rf_acc*100.0, places=3)
 
-                if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierIfElse")):
-                    shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierIfElse"))
+                materializer.clean()
 
+    # TODO SOMETIMES THERE IS AN HERE
     @unittest.skip
     def test_native_linuxstandalone(self):
         for rf in self.rfs:
-            forest = Forest(rf)
+            forest = Forest.from_sklearn(rf)
             scores = forest.score(self.XTest,self.ytest)
             forest_acc = scores["Accuracy"]
             rf_acc = accuracy_score(rf.predict(self.XTest), self.ytest)
@@ -88,8 +87,7 @@ class TestRandomForestClassifiers(unittest.TestCase):
                             self.assertAlmostEqual(forest_acc, rf_acc)
                             self.assertAlmostEqual(float(output["Accuracy"]), rf_acc*100.0, places=3)
                             
-                            if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierNative")):
-                                shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierNative"))
+                            materializer.clean()
 
                 msg = f"Running test_native_linuxstandalone on RF with n_estimators={rf.n_estimators},max_depth={rf.max_depth},int_type={it}, reorder_nodes=False"
                 with self.subTest(msg):
@@ -104,12 +102,11 @@ class TestRandomForestClassifiers(unittest.TestCase):
                     self.assertAlmostEqual(forest_acc, rf_acc)
                     self.assertAlmostEqual(float(output["Accuracy"]), rf_acc*100.0, places=3)
                     
-                    if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierNative")):
-                        shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestRandomForestClassifierNative"))
+                    materializer.clean()
 
     def test_swap(self):
         for rf in self.rfs:
-            forest = Forest(rf)
+            forest = Forest.from_sklearn(rf)
             scores = forest.score(self.XTest,self.ytest)
             forest_acc_before = scores["Accuracy"]
             forest.swap_nodes()
@@ -122,16 +119,16 @@ class TestRandomForestClassifiers(unittest.TestCase):
         for rf in self.rfs:
             # TODO Enhance this test case and really check if we we do not break the forest
             for r in [None, 2**16]:
-                forest = Forest(rf)
+                forest = Forest.from_sklearn(rf)
                 forest.quantize(quantize_leafs=r, quantize_splits=None)
 
-                forest = Forest(rf)
+                forest = Forest.from_sklearn(rf)
                 forest.quantize(quantize_leafs=None, quantize_splits=r)
 
-                forest = Forest(rf)
+                forest = Forest.from_sklearn(rf)
                 forest.quantize(quantize_leafs=r, quantize_splits=r)
             
-            forest = Forest(rf)
+            forest = Forest.from_sklearn(rf)
             forest.quantize(quantize_leafs=None, quantize_splits="rounding")
 
     # def test_pruning(self):

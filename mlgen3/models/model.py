@@ -1,33 +1,50 @@
 from abc import ABC,abstractmethod
 
+from enum import Enum
+
+import numpy as np
+
+class PredcitionType(Enum):
+    CLASSIFICATION = 1
+
 class Model(ABC):
 
     #Keep x,y, trainconfig, ... rememebered
     # x_train, y_train, x_test, y_test
 
-    def __init__(self, original_model):
-        self.original_model = original_model
+    def __init__(self, prediction_type):
+        assert prediction_type == PredcitionType.CLASSIFICATION, "Currently only classification is supported"
+        self.prediction_type = prediction_type
+        
+        self.original_model = None
         self.XTrain = None
         self.XTest = None
         self.YTrain = None
         self.YTest = None
         
-    def fit(self):
-        if self.XTrain is not None and self.YTrain is not None:
-            self.original_model.fit(self.XTrain, self.YTrain)
-        else:
-            raise ValueError(f"Cannot fit model because XTrain and YTrain have not been set properly. Set these fields, e.g. by using a TestTrainSplit Trainer. XTrain was {self.XTrain} and YTrain was {self.YTrain}")
+    # def fit(self):
+    #     if self.XTrain is not None and self.YTrain is not None:
+    #         self.original_model.fit(self.XTrain, self.YTrain)
+    #     else:
+    #         raise ValueError(f"Cannot fit model because XTrain and YTrain have not been set properly. Set these fields, e.g. by using a TestTrainSplit Trainer. XTrain was {self.XTrain} and YTrain was {self.YTrain}")
 
-        self.init_from_fitted(self.original_model)
+    #     self.init_from_fitted(self.original_model)
+
+    # @abstractmethod
+    # def score_model(self):
+    #     # TODO: If we only distinguish between classification and regression and force a predict / predict_proba method, then we do not really need to implement this
+    #     pass
+
+    # @abstractmethod
+    # def init_from_fitted(self, original_model):
+    #     pass
 
     @abstractmethod
-    def score_model(self):
-        # TODO: If we only distinguish between classification and regression and force a predict / predict_proba method, then we do not really need to implement this
+    def predict_proba(self, X):
         pass
 
-    @abstractmethod
-    def init_from_fitted(self, original_model):
-        pass
+    def predict(self, X):
+        return self.predict_proba(X).argmax(axis=1)
 
     def score(self, X = None, y = None):
         if X is None or y is None:
@@ -37,10 +54,14 @@ class Model(ABC):
                 X = self.XTest
                 y = self.YTest
         else:
-            # TODO: This implies that we need to call score on a self-fitted model at some point?
-            if self.XTest is None or self.YTest is None:
-                self.XTest = X
-                self.YTest = y
+            # TODO: Currently we have to call score() on a self-trained model _before_ we can properly implement it because implementation will access self.implementation.model.XTest
+            self.XTest = X
+            self.YTest = y
 
-        return self.score_model(X,y)
+        if self.prediction_type == PredcitionType.CLASSIFICATION:
+            prediction = self.predict_proba(X)
+            accuracy = np.mean(prediction.argmax(axis=1) == y)
+
+            #Compute some value
+            return {"Accuracy": accuracy}
     

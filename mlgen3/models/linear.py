@@ -1,31 +1,11 @@
-# TODO REMOVE THIS DEPENDENCY?
 import numpy as np
-from sklearn.metrics import accuracy_score
-
-from .model import Model
+from .model import Model, PredcitionType
 
 class Linear(Model):
-	def __init__(self, model):
-		super().__init__(model)
+	def __init__(self):
+		super().__init__(PredcitionType.CLASSIFICATION)
 		self.coef = []
 		self.intercept = []
-
-		# Check if the classifier is already fitted
-		# TODO Do we really want / need this?
-		if model is not None:
-			self.init_from_fitted(model)
-
-	def init_from_fitted(self, original_model):
-		# TODO ADD different models here
-		tmp = Linear.from_sklearn(original_model)
-		self.coef = tmp.coef
-		self.intercept = tmp.intercept
-
-	def score_model(self, x, y):
-		prediction = self.predict_proba(x).argmax(axis=1)
-		accuracy = accuracy_score(y, prediction)
-
-		return {"Accuracy": accuracy}
 
 	@classmethod
 	def from_sklearn(cls, sk_model):
@@ -39,9 +19,10 @@ class Linear(Model):
 		Returns:
 			Linear: The newly generated linear model.
 		"""
-		model = Linear(None)
+		model = Linear()
 		model.intercept = sk_model.intercept_
 		model.coef = sk_model.coef_.T
+		model.original_model = sk_model
 
 		return model
 	
@@ -55,7 +36,7 @@ class Linear(Model):
 		Returns:
 			Tree: The newly generated linear model.
 		"""
-		model = Linear(None)
+		model = Linear()
 		model.intercept = np.array(data["intercept"])
 		model.coef = np.array(data["coeff"])
 

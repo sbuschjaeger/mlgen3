@@ -1,32 +1,20 @@
 import os
 import numpy as np
 import json
-from sklearn.tree import _tree
-from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier, ExtraTreesClassifier, BaggingClassifier, GradientBoostingClassifier
-from sklearn.metrics import accuracy_score
 
 from .tree import Tree
-from ..model import Model
+from ..model import Model, PredcitionType
 
 class Forest(Model):
-	def __init__(self, model):
-		super().__init__(model)
+	def __init__(self):
+		super().__init__(PredcitionType.CLASSIFICATION)
 		self.trees = []
 		self.weights = []
 
-		# Check if the classifier is already fitted
-		# TODO Do we really want / need this?
-		if model is not None and hasattr(model, "estimator_"):
-			self.init_from_fitted(model)
-
-	def init_from_fitted(self, original_model):
-		# TODO ADD different models here
-		tmp = Forest.from_sklearn(original_model)
-		self.trees = tmp.trees
-		self.weights = tmp.weights
-
 	@classmethod
 	def from_sklearn(cls, sk_model):
+		from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier, ExtraTreesClassifier, BaggingClassifier, GradientBoostingClassifier
+
 		"""Generates a new ensemble from an sklearn ensemble.
 
 		Args:
@@ -36,7 +24,7 @@ class Forest(Model):
 			Ensemble: The newly generated ensemble.
 		"""
 
-		model = Forest(None)
+		model = Forest()
 		 
 		if isinstance(sk_model, (BaggingClassifier, RandomForestClassifier, ExtraTreesClassifier, AdaBoostClassifier, GradientBoostingClassifier)):
 			#obj.category = "ensemble"
@@ -79,7 +67,7 @@ class Forest(Model):
 		Returns:
 			Ensemble: The newly generated ensemble.
 		"""
-		model = Forest(None)
+		model = Forest()
 		#obj = super().from_dict(data)
 
 		for entry in data["models"]:
@@ -113,13 +101,6 @@ class Forest(Model):
 		all_proba = np.array(all_proba)
 
 		return all_proba.sum(axis=0)
-
-	def score_model(self, x, y):
-		prediction = self.predict_proba(x).argmax(axis=1)
-		accuracy = accuracy_score(y, prediction)
-
-		#Compute some value
-		return {"Accuracy": accuracy}
 
 	def swap_nodes(self):
 		for t in self.trees:

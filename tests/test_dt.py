@@ -39,25 +39,25 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
         nominal.inputformat(dataset)
         dataset = nominal.filter(dataset)
         dataset.class_is_last()
-        dt = Classifier(classname="weka.classifiers.trees.J48", options=["-B"])
-        dt.build_classifier(dataset)
+        weka_dt = Classifier(classname="weka.classifiers.trees.J48", options=["-B"])
+        weka_dt.build_classifier(dataset)
 
         ypred = []
         for x in dataset:
-            ypred.append(dt.classify_instance(x))
+            ypred.append(weka_dt.classify_instance(x))
         
-        dt_acc = accuracy_score(ypred, self.y)
+        weka_dt_acc = accuracy_score(ypred, self.y)
         
-        tree = Tree(dt)
+        tree = Tree.from_weka(weka_dt)
         scores = tree.score(self.X,self.y)
         tree_acc = scores["Accuracy"]
-        self.assertAlmostEqual(dt_acc, tree_acc, places=3)
+        self.assertAlmostEqual(weka_dt_acc, tree_acc, places=3)
 
         jvm.stop()
 
     def test_from_scikitlearn(self):
         for dt in self.dts:
-            tree = Tree(dt)
+            tree = Tree.from_sklearn(dt)
             scores = tree.score(self.X,self.y)
             tree_acc = scores["Accuracy"]
             dt_acc = accuracy_score(dt.predict(self.X), self.y)
@@ -68,7 +68,7 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
         for dt in self.dts:
             msg = f"Running test_ifelse_linuxstandalone on DT with max_depth = {dt.max_depth}"
             with self.subTest(msg):
-                tree = Tree(dt)
+                tree = Tree.from_sklearn(dt)
                 scores = tree.score(self.X,self.y)
                 tree_acc = scores["Accuracy"]
                 dt_acc = accuracy_score(dt.predict(self.X), self.y)
@@ -84,12 +84,11 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
                 self.assertAlmostEqual(tree_acc, dt_acc, places=3)
                 self.assertAlmostEqual(float(output["Accuracy"]), dt_acc*100.0, places=3)
 
-                if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierIfElse")):
-                    shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierIfElse"))
+                materializer.clean()
     
     def test_native_linuxstandalone(self):
         for dt in self.dts:
-            tree = Tree(dt)
+            tree = Tree.from_sklearn(dt)
             scores = tree.score(self.X,self.y)
             tree_acc = scores["Accuracy"]
             dt_acc = accuracy_score(dt.predict(self.X), self.y)
@@ -110,8 +109,7 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
                             self.assertAlmostEqual(tree_acc, dt_acc)
                             self.assertAlmostEqual(float(output["Accuracy"]), dt_acc*100.0, places=3)
                             
-                            if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierNative")):
-                                shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierNative"))
+                            materializer.clean()
 
                 msg = f"Running test_native_linuxstandalone on DT max_depth={dt.max_depth},int_type={it}, reorder_nodes=False"
                 with self.subTest(msg):
@@ -126,12 +124,11 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
                     self.assertAlmostEqual(tree_acc, dt_acc)
                     self.assertAlmostEqual(float(output["Accuracy"]), dt_acc*100.0, places=3)
                     
-                    if os.path.exists(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierNative")):
-                        shutil.rmtree(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierNative"))
-    
+                    materializer.clean()
+
     def test_swap(self):
         for dt in self.dts:
-            tree = Tree(dt)
+            tree = Tree.from_sklearn(dt)
             scores = tree.score(self.X,self.y)
             tree_acc_before = scores["Accuracy"]
             tree.swap_nodes()
@@ -144,16 +141,16 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
         for dt in self.dts:
             # TODO Enhance this test case and really check if we we do not break the tree
             for r in [None, 2**16]:
-                tree = Tree(dt)
+                tree = Tree.from_sklearn(dt)
                 tree.quantize(quantize_leafs=r, quantize_splits=None)
 
-                tree = Tree(dt)
+                tree = Tree.from_sklearn(dt)
                 tree.quantize(quantize_leafs=None, quantize_splits=r)
 
-                tree = Tree(dt)
+                tree = Tree.from_sklearn(dt)
                 tree.quantize(quantize_leafs=r, quantize_splits=r)
             
-            tree = Tree(dt)
+            tree = Tree.from_sklearn(dt)
             tree.quantize(quantize_leafs=None, quantize_splits="rounding")
 
     def test_ifelse_params(self):

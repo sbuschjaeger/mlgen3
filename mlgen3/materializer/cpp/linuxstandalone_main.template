@@ -59,7 +59,7 @@ auto read_csv(std::string &path) {
 auto benchmark(std::vector<std::vector<FEATURE_TYPE>> &X, std::vector<LABEL_TYPE> &Y, unsigned int repeat) {
     //double output[N_CLASSES] = {0};
 	std::vector<OUTPUT_TYPE> output;
-    unsigned int n_features = X[0].size();
+    //unsigned int n_features = X[0].size();
 
 	unsigned int matches = 0;
     {start_measurement}

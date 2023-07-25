@@ -1,4 +1,3 @@
-import textwrap
 import numpy as np
 from mlgen3.implemantations.implementation import Implementation
 from mlgen3.models.nn.activations import Sign, Sigmoid, Relu, Step
