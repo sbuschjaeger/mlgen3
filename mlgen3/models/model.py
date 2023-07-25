@@ -21,23 +21,6 @@ class Model(ABC):
         self.XTest = None
         self.YTrain = None
         self.YTest = None
-        
-    # def fit(self):
-    #     if self.XTrain is not None and self.YTrain is not None:
-    #         self.original_model.fit(self.XTrain, self.YTrain)
-    #     else:
-    #         raise ValueError(f"Cannot fit model because XTrain and YTrain have not been set properly. Set these fields, e.g. by using a TestTrainSplit Trainer. XTrain was {self.XTrain} and YTrain was {self.YTrain}")
-
-    #     self.init_from_fitted(self.original_model)
-
-    # @abstractmethod
-    # def score_model(self):
-    #     # TODO: If we only distinguish between classification and regression and force a predict / predict_proba method, then we do not really need to implement this
-    #     pass
-
-    # @abstractmethod
-    # def init_from_fitted(self, original_model):
-    #     pass
 
     @abstractmethod
     def predict_proba(self, X):

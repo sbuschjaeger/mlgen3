@@ -84,24 +84,6 @@ class Tree(Model):
 
 		self.n_classes = None
 
-	# def init_from_fitted(self, original_model):
-	# 	if isinstance(original_model, DecisionTreeClassifier):
-	# 		if hasattr(original_model, "tree_"):
-	# 			tmp = Tree.from_sklearn(original_model)
-	# 			self.nodes = tmp.nodes
-	# 			self.head = tmp.head
-	# 			self.n_classes = tmp.n_classes
-	# 	elif isinstance(original_model, Classifier) and original_model.classname == "weka.classifiers.trees.J48":
-	# 		# TODO Is there a better way to determine if this weka model has been build yet?
-	# 		if str(original_model) != "No classifier built":
-	# 			tmp = Tree.from_weka(original_model)
-	# 			self.nodes = tmp.nodes
-	# 			self.head = tmp.head
-	# 			self.n_classes = tmp.n_classes
-	# 	else:
-	# 		raise ValueError("Unrecognizued model is passed to Tree.init_from_fitted(model). Currently implemented are sklearn.tree.DecisionTreeClassifier and weka.classifiers.trees.J48!")
-	# 	#self.populate_path_probs()
-
 	def predict_proba(self,X):
 		"""Applies this tree to the given data and provides the predicted probabilities for each example in X.
 
