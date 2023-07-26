@@ -74,6 +74,7 @@ class Ensemble(Implementation):
                 #pragma once
                 #include <vector>
                 #include <algorithm>
+                #include <functional>
                 std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);
                 {tree_headers}
             """ 

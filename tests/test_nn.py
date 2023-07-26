@@ -22,9 +22,7 @@ from mlgen3.models.nn.neuralnet import NeuralNet
 class TestNeuralNetwork(unittest.TestCase):
 
     def setUp(self):
-        iris = datasets.load_iris()
-        self.X = iris.data
-        self.y = iris.target
+        self.X, self.y = datasets.load_digits(return_X_y=True)
 
     def test_activations(self):
         x = np.random.uniform(low=0, high=1, size=(25,25))

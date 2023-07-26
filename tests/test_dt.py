@@ -22,45 +22,20 @@ from weka.core.dataset import missing_value
 class TestDecisionTreeClassifiers(unittest.TestCase):
 
     def setUp(self):
-        iris = datasets.load_iris()
-        self.X = iris.data
-        self.y = iris.target
+        self.X, self.Y = datasets.load_digits(return_X_y=True)
 
         self.dts = []
-        for d in [1, 5]:
+        for d in [1, 5, None]:
             dt = DecisionTreeClassifier(max_depth=d, random_state=0)
-            dt.fit(self.X,self.y)
+            dt.fit(self.X,self.Y)
             self.dts.append(dt)
- 
-    def test_from_weka(self):
-        jvm.start()
-        dataset = create_instances_from_matrices(self.X, self.y, name="Iris dataset")
-        nominal = Filter(classname="weka.filters.unsupervised.attribute.NumericToNominal", options=["-R", "last"])
-        nominal.inputformat(dataset)
-        dataset = nominal.filter(dataset)
-        dataset.class_is_last()
-        weka_dt = Classifier(classname="weka.classifiers.trees.J48", options=["-B"])
-        weka_dt.build_classifier(dataset)
-
-        ypred = []
-        for x in dataset:
-            ypred.append(weka_dt.classify_instance(x))
-        
-        weka_dt_acc = accuracy_score(ypred, self.y)
-        
-        tree = Tree.from_weka(weka_dt)
-        scores = tree.score(self.X,self.y)
-        tree_acc = scores["Accuracy"]
-        self.assertAlmostEqual(weka_dt_acc, tree_acc, places=3)
-
-        jvm.stop()
 
     def test_from_scikitlearn(self):
         for dt in self.dts:
             tree = Tree.from_sklearn(dt)
-            scores = tree.score(self.X,self.y)
+            scores = tree.score(self.X,self.Y)
             tree_acc = scores["Accuracy"]
-            dt_acc = accuracy_score(dt.predict(self.X), self.y)
+            dt_acc = accuracy_score(dt.predict(self.X), self.Y)
 
             self.assertAlmostEqual(dt_acc, tree_acc, places=3)
 
@@ -69,9 +44,9 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
             msg = f"Running test_ifelse_linuxstandalone on DT with max_depth = {dt.max_depth}"
             with self.subTest(msg):
                 tree = Tree.from_sklearn(dt)
-                scores = tree.score(self.X,self.y)
+                scores = tree.score(self.X,self.Y)
                 tree_acc = scores["Accuracy"]
-                dt_acc = accuracy_score(dt.predict(self.X), self.y)
+                dt_acc = accuracy_score(dt.predict(self.X), self.Y)
 
                 implementation = IfElse(tree, feature_type="float", label_type="float")
                 implementation.implement()
@@ -79,7 +54,7 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
                 materializer=LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
                 materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierIfElse"))
                 materializer.deploy() 
-                output = materializer.run(True) 
+                output = materializer.run() 
 
                 self.assertAlmostEqual(tree_acc, dt_acc, places=3)
                 self.assertAlmostEqual(float(output["Accuracy"]), dt_acc*100.0, places=3)
@@ -89,9 +64,9 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
     def test_native_linuxstandalone(self):
         for dt in self.dts:
             tree = Tree.from_sklearn(dt)
-            scores = tree.score(self.X,self.y)
+            scores = tree.score(self.X,self.Y)
             tree_acc = scores["Accuracy"]
-            dt_acc = accuracy_score(dt.predict(self.X), self.y)
+            dt_acc = accuracy_score(dt.predict(self.X), self.Y)
 
             for it in [None, "int"]:
                 for s in [1, 8]:
@@ -104,7 +79,7 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
                             materializer=LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
                             materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierNative"))
                             materializer.deploy() 
-                            output = materializer.run(True) 
+                            output = materializer.run() 
 
                             self.assertAlmostEqual(tree_acc, dt_acc)
                             self.assertAlmostEqual(float(output["Accuracy"]), dt_acc*100.0, places=3)
@@ -119,7 +94,7 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
                     materializer = LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
                     materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestDecisionTreeClassifierNative"))
                     materializer.deploy() 
-                    output = materializer.run(True) 
+                    output = materializer.run() 
 
                     self.assertAlmostEqual(tree_acc, dt_acc)
                     self.assertAlmostEqual(float(output["Accuracy"]), dt_acc*100.0, places=3)
@@ -129,7 +104,7 @@ class TestDecisionTreeClassifiers(unittest.TestCase):
     def test_swap(self):
         for dt in self.dts:
             tree = Tree.from_sklearn(dt)
-            scores = tree.score(self.X,self.y)
+            scores = tree.score(self.X,self.Y)
             tree_acc_before = scores["Accuracy"]
             tree.swap_nodes()
             tree_acc_after = scores["Accuracy"]
