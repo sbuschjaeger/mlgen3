@@ -1,3 +1,4 @@
+import copy
 from mlgen3.models.nn.activations import Step
 
 from mlgen3.models.nn.batchnorm import BatchNorm
@@ -61,16 +62,14 @@ class NeuralNet(Model):
 		"""
 		# Merge BN + Step layers for BNNs
 		new_layers = []
-		last_layer = None
-		for layer_id, layer in enumerate(self.layers):
-			if last_layer is not None:
-				if isinstance(last_layer, BatchNorm) and isinstance(layer, Step):
-					layer.threshold = layer.threshold -last_layer.bias / last_layer.scale
-				else:
-					new_layers.append(last_layer)
-			last_layer = layer
-			
-		new_layers.append(last_layer)
+		for lid, layer in enumerate(self.layers):
+			if lid < len(self.layers) - 1:
+				next_layer = self.layers[lid + 1]
+				if isinstance(layer, BatchNorm) and isinstance(next_layer, Step):
+					next_layer.threshold = next_layer.threshold - layer.bias / layer.scale
+					continue
+			new_layers.append(layer)
+		
 		self.layers = new_layers
 
 

@@ -139,28 +139,33 @@ class TestNeuralNetwork(unittest.TestCase):
 
         self.assertIsNone(np.testing.assert_array_almost_equal(pred, predtorch))
 
-    # TODO THIS DOES NOT FULLY WORK AT THE MOMENT!
-    @unittest.skip
     def test_bnn_linuxstandalone(self):
+        # TODO: ADD BIAS AGAIN
+        # TODO: CHECK IF BIT ORDER STILL MATCHES FOR LARGER NETWORKS
         layers = [
             Linear(np.random.choice([-1,1],size=(32,self.X.shape[1])), np.random.choice([-1,1],size=32)),
             BatchNorm(np.random.uniform(size=32),np.random.uniform(size=32),np.random.uniform(size=32),np.random.uniform(size=32), 1e-5),
             Step(32),
-            Linear(np.random.choice([-1,1],size=(16,32)), np.random.choice([-1,1],size=16)),
-            BatchNorm(np.random.uniform(size=16),np.random.uniform(size=16),np.random.uniform(size=16),np.random.uniform(size=16), 1e-5),
-            Step(16),
-            Linear(np.random.choice([-1,1],size=(8,16)), np.random.choice([-1,1],size=8)),
-            BatchNorm(np.random.uniform(size=8),np.random.uniform(size=8),np.random.uniform(size=8),np.random.uniform(size=8), 1e-5),
-            Step(8),
-            Linear(np.random.choice([-1,1],size=(8,8)), np.random.choice([-1,1],size=8)),
-            BatchNorm(np.random.uniform(size=8),np.random.uniform(size=8),np.random.uniform(size=8),np.random.uniform(size=8), 1e-5),
-            Step(8),
-            Linear(np.random.choice([-1,1],size=(3,8)), np.random.choice([-1,1],size=3))
+            Linear(np.random.choice([-1,1],size=(3,32)), np.array([0,0,0])), #np.random.choice([-1,1],size=3)
+            #BatchNorm(np.random.uniform(size=3),np.random.uniform(size=3),np.random.uniform(size=3),np.random.uniform(size=3), 1e-5),
+            #Step(3),
+            # Linear(np.random.choice([-1,1],size=(8,16)), np.random.choice([-1,1],size=8)),
+            # BatchNorm(np.random.uniform(size=8),np.random.uniform(size=8),np.random.uniform(size=8),np.random.uniform(size=8), 1e-5),
+            # Step(8),
+            # Linear(np.random.choice([-1,1],size=(8,8)), np.random.choice([-1,1],size=8)),
+            # BatchNorm(np.random.uniform(size=8),np.random.uniform(size=8),np.random.uniform(size=8),np.random.uniform(size=8), 1e-5),
+            # Step(8),
+            # Linear(np.random.choice([-1,1],size=(3,16)), np.random.choice([-1,1],size=3))
         ]
 
         net = NeuralNet.from_layers(layers)
         scores = net.score(self.X,self.y)
         acc = scores["Accuracy"]
+        print(net.predict_proba(self.X[0,:]))
+        print(net.predict_proba(self.X[1,:]))
+        print(net.predict_proba(self.X[2,:]))
+        print(net.predict_proba(self.X[3,:]))
+        print(net.predict_proba(self.X[4,:]))
 
         implementation = BNN(net, feature_type="float", label_type="float")
         implementation.implement()

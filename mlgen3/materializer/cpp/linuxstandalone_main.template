@@ -71,6 +71,13 @@ auto benchmark(std::vector<std::vector<FEATURE_TYPE>> &X, std::vector<LABEL_TYPE
 
 			output=predict(X[i]);
 
+			if (k == 0 && i < 5) {
+				for (unsigned int j = 0; j < output.size(); ++j) {
+					std::cout << output[j] << " ";
+				}
+				std::cout << std::endl;
+			}
+
             OUTPUT_TYPE max = output[0];
             unsigned int argmax = 0;
             for (unsigned int j = 1; j < output.size(); j++) {
