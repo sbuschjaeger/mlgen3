@@ -58,6 +58,9 @@ def get_step(l, lid, input_packed = False, output_packed = True, **kwargs):
 		else:
 			comp = ">"
 
+		n_loops = int(np.ceil(l.output_shape / binary_word_size))
+		upper = min(l.output_shape, binary_word_size)
+
 		if isinstance(l.threshold, (list, np.ndarray)):
 			# TODO round to next integer and use the int type 
 
@@ -65,7 +68,7 @@ def get_step(l, lid, input_packed = False, output_packed = True, **kwargs):
 			threshold_array = f"constexpr float layer_{lid}_threshold[{len(l.threshold)}] = {tmp_threshold};"
 			alloc += threshold_array + "\n"
 
-			threshold = f"layer_{lid}_threshold[i]"
+			threshold = f"layer_{lid}_threshold[idx]"
 		else:
 			threshold = l.threshold
 		
@@ -74,21 +77,33 @@ def get_step(l, lid, input_packed = False, output_packed = True, **kwargs):
 		else:
 			bit = "1U"
 
-		n_loops = int(np.ceil(l.output_shape / binary_word_size))
-
-		for i in range(n_loops):
-			upper = min(l.output_shape, binary_word_size)
-
-			code += f"""
-				// Step Layer
-				layer_{lid}[{i}] = 0;
-				for (unsigned int i = 0; i < {upper}; i++) {{
-					if ({input}[i] {comp} {threshold}) {{
-						//layer_{lid}[{i}] |= {bit} << (32 - 1 - i);
-						layer_{lid}[{i}] |= {bit} << (i);
+		code += f"""
+			// Step Layer
+			for (unsigned int j = 0; j < {n_loops}; ++j) {{
+				layer_{lid}[j] = 0;
+				for (unsigned int i = 0; i < {upper}; ++i) {{
+					auto idx = {upper}*j+i;
+					if (idx < {l.input_shape} && {input}[idx] {comp} {threshold}) {{
+						//layer_{lid}[i] |= {bit} << (32 - 1 - i);
+						layer_{lid}[j] |= {bit} << (i);
 					}} 
 				}}
-			"""	
+			}}
+		"""	
+
+		# for i in range(n_loops):
+		# 	upper = min(l.output_shape, binary_word_size)
+
+		# 	code += f"""
+		# 		// Step Layer
+		# 		layer_{lid}[{i}] = 0;
+		# 		for (unsigned int i = 0; i < {upper}; i++) {{
+		# 			if ({input}[i] {comp} {threshold}) {{
+		# 				//layer_{lid}[{i}] |= {bit} << (32 - 1 - i);
+		# 				layer_{lid}[{i}] |= {bit} << (i);
+		# 			}} 
+		# 		}}
+		# 	"""	
 	else:
 		alloc += f"static {int_type} layer_{lid}[{l.output_shape}]"
 		if align is not None and align > 0:
@@ -135,6 +150,7 @@ def get_linear(l, lid, input_packed = False, output_packed = True, **kwargs):
 	uint_type = kwargs.pop("uint_type", "unsigned int") 
 	int_type = kwargs.pop("int_type", "int") 
 	popcount = kwargs.pop("popcount", "__builtin_popcount") 
+	remaining_bits = kwargs.pop("remaining_bits", None)
 
 	if not input_packed:
 		# TODO fix types
@@ -209,17 +225,72 @@ def get_linear(l, lid, input_packed = False, output_packed = True, **kwargs):
 		alloc += weight_array + "\n"
 		alloc += bias_array + "\n"
 
-		code += f"""
-			// Linear Layer
-			for (unsigned int d = 0; d < {l.output_shape}; d++) {{
-				layer_{lid}[d] = layer_{lid}_bias[d];
-			}}
-			for (unsigned int d = 0; d < {l.output_shape}; d++) {{
-				for (int i = 0; i < {int(np.ceil(l.input_shape/binary_word_size))}; i++) {{
-					layer_{lid}[d] += 2 * {popcount}(~(layer_{lid}_weight[d][i] ^ {input}[i])) - {binary_word_size};
+		if remaining_bits is None or remaining_bits == 0:
+			code += f"""
+				// Linear Layer
+				for (unsigned int d = 0; d < {l.output_shape}; d++) {{
+					layer_{lid}[d] = layer_{lid}_bias[d];
 				}}
-			}}
-		"""
+				for (unsigned int d = 0; d < {l.output_shape}; d++) {{
+					for (int i = 0; i < {int(np.ceil(l.input_shape/binary_word_size))}; i++) {{
+						layer_{lid}[d] += 2 * {popcount}(~(layer_{lid}_weight[d][i] ^ {input}[i])) - {binary_word_size};
+					}}
+				}}
+			"""
+		else:
+			code += f"""
+				// Linear Layer
+				for (unsigned int d = 0; d < {l.output_shape}; d++) {{
+					layer_{lid}[d] = layer_{lid}_bias[d];
+				}}
+				for (unsigned int d = 0; d < {l.output_shape}; d++) {{
+					for (int i = 0; i < {int(np.ceil(l.input_shape/binary_word_size))}; i++) {{
+						if (i == {int(np.ceil(l.input_shape/binary_word_size)) - 1}) {{
+							// There are only {remaining_bits} bits in the last bitvector, so we have to ignore {binary_word_size - remaining_bits} bits (given a {binary_word_size} architecture)
+							layer_{lid}[d] += 2 * ({popcount}(~(layer_{lid}_weight[d][i] ^ {input}[i])) - {binary_word_size - remaining_bits}) - {remaining_bits};
+						}} else {{
+							layer_{lid}[d] += 2 * {popcount}(~(layer_{lid}_weight[d][i] ^ {input}[i])) - {binary_word_size};
+						}}
+					}}
+				}}
+			"""
+
+	return alloc, code
+
+def get_bn(l, lid, **kwargs):
+	assert isinstance(l, BatchNorm), f"Provided layer of type {l}, but expected a nn.linear layer!"
+	alloc = ""
+	code = ""
+
+	internal_type = kwargs.pop("internal_type", "float") 
+	align = kwargs.pop("align", False) 
+	output_type = kwargs.pop("output_type", "float") 
+
+	if lid == 0:
+		input = "x"
+	else:
+		input = f"layer_{lid-1}"
+
+	alloc += f"static {output_type} layer_{lid}[{l.output_shape}]"
+	if align is not None and align > 0:
+		alloc += f"__attribute__((aligned({align})));\n"
+	else:
+		alloc += ";\n"
+
+	tmp_scale = str(l.scale.tolist()).replace("[", "{").replace("]","}")
+	scale_array = f"constexpr {internal_type} layer_{lid}_scale[{len(l.scale)}] = {tmp_scale};"
+	
+	tmp_bias = str(l.bias.tolist()).replace("[", "{").replace("]","}")
+	bias_array = f"constexpr {internal_type} layer_{lid}_bias[{len(l.bias)}] = {tmp_bias};"
+
+	alloc += scale_array + "\n"
+	alloc += bias_array + "\n"
+
+	code += f"""
+		for (unsigned int d = 0; d < {l.output_shape}; d++) {{
+			layer_{lid}[d] = {input}[d] * layer_{lid}_scale[d] + layer_{lid}_bias[d];
+		}}
+	"""
 
 	return alloc, code
 
@@ -237,26 +308,32 @@ class BNN(Implementation):
 			self.popcount = "__builtin_popcountll"
 
 		self.model.merge_bn_and_step()
-		for l in self.model.layers:
+		for (i, l) in enumerate(self.model.layers):
 			if isinstance(l, Linear) and not np.all( (l.weight == 1) | (l.weight == -1) ) and not np.all( (l.bias == 1) | (l.bias == -1) ):
 				raise ValueError("Encountered values other than {-1,+1} in the weight/bias of the linear layer. Check your model or consider using the cpp.nhwc implementation.")
-			elif isinstance(l, (BatchNorm, Sigmoid, Relu, Sign)):
-				raise ValueError(f"Encountered layer of type {l} which is not supported. Please make sure your model only contains {{Linear,BatchNorm,Step}} layers. If not, check your model or consider using the cpp.nhwc implementation.")
+			elif isinstance(l, (BatchNorm)) and i > 0 and i < len(self.model.layers) - 1:
+				raise ValueError(f"Encountered layer of type {l} in one of the hidden layers of the network. Currently, only Linear and Step layers are supported. If you have a BatchNorm layer inside of your model, make sure it is followed by a Step layer so both can be merged. If this is not possible consider using the cpp.nhwc implementation.")
 
 	def implement(self):
 		alloc = ""
 		code = ""
 
 		is_packed = False
+		binary_word_size = 32
+		remaining_bits = None
 		for lid, l in enumerate(self.model.layers):
 			is_last = (lid == len(self.model.layers) - 1)
 
 			if isinstance(l, Linear):
-				tmp_alloc, tmp_code = get_linear(l, lid, input_packed=is_packed, output_packed=False)
+				tmp_alloc, tmp_code = get_linear(l, lid, input_packed=is_packed, output_packed=False, binary_word_size=binary_word_size,remaining_bits=remaining_bits)
 				is_packed = False
 			elif isinstance(l,Step):
-				tmp_alloc, tmp_code = get_step(l, lid, input_packed=is_packed, output_packed=not is_last, output_type="int" if not is_last else "float")
+				tmp_alloc, tmp_code = get_step(l, lid, input_packed=is_packed, output_packed=not is_last, output_type="int" if not is_last else "float", binary_word_size=binary_word_size)
 				is_packed = True
+				remaining_bits = l.output_shape % binary_word_size
+			elif isinstance(l, BatchNorm):
+				is_packed = False
+				tmp_alloc, tmp_code = get_bn(l, lid)
 			else:
 				raise ValueError(f"Encountered layer {l} which is not supported.")
 
