@@ -1,0 +1,110 @@
+#include <Arduino.h>
+#include <ArduinoSTL.h>
+#include <Chrono.h>
+
+//IMPORTANT: Due to support limitations of the library "ArduinoSTL", the code is not compatible with other platforms than AtmelAVR
+//please visit https://docs.platformio.org/en/latest/boards/index.html, to check if your device is supported.
+
+{typedefinitions}
+
+std::vector<FEATURE_TYPE> v;
+String incomingByte;
+std::vector<FEATURE_TYPE> data;
+std::vector<LABEL_TYPE> result;
+Chrono chrono;
+unsigned long start;
+unsigned long end;
+
+
+void printVector(std::vector<OUTPUT_TYPE> v){
+  for (unsigned int i = 0; i < v.size(); i++) {
+    Serial.println(v[i]);
+  }
+  Serial.println("---"); //to indicate that output is over
+}
+
+
+//checks if Arduino::String is a float.
+//@defragster https://forum.pjrc.com/index.php?threads/testing-if-a-string-is-numeric.27842/#post-65572
+
+bool isNumeric(const char* str) {
+  byte ii = 0;
+  bool RetVal = false;
+  if ( '-' == str[ii] )
+    ii++;
+  while (str[ii])
+  {
+    if ( '.' == str[ii] ) {
+      ii++;
+      break;
+    }
+    if (!isdigit(str[ii])) return false;
+    ii++;
+    RetVal = true;
+  }
+  while (str[ii])
+  {
+    if (!isdigit(str[ii])) return false;
+    ii++;
+    RetVal = true;
+  }
+  return RetVal;
+}
+
+std::vector<FEATURE_TYPE> read_uart(){
+	//read input String into a FEATURE_TYPE Vector
+	v.clear();
+	if(Serial.available() > 0){
+		incomingByte = Serial.readStringUntil('\n');
+		
+		while (incomingByte.length() > 0)
+		{
+			int index = incomingByte.indexOf(' ');
+			if (index == -1) // No space found
+			{
+				if (isNumeric(incomingByte.c_str())) {
+					v.push_back(incomingByte.{conversion_method});
+				}
+				else {
+					Serial.println("Error: input type does not match feature type");
+				}
+				break;
+			}
+			else
+			{
+				if(isNumeric(incomingByte.substring(0, index).c_str())){
+					v.push_back(incomingByte.substring(0, index).{conversion_method});
+				}
+				else{
+					Serial.println("Error: input type does not match feature type");
+					break;
+				}
+			incomingByte = incomingByte.substring(index+1);
+			}
+		}
+	}
+	
+	return v;
+}
+
+
+void setup() {
+  Serial.begin(9600);
+  chrono.start();
+}
+
+void loop() {
+    incomingByte = "";
+    data = read_uart();
+	if(data.size()>0){
+		chrono.restart();
+		start = chrono.elapsed();
+		result = predict(data);
+		end = chrono.elapsed();
+		Serial.print("Result: ");
+		printVector(result);
+		Serial.print("prediction time: ");
+		Serial.println(end - start);
+
+	}
+}
