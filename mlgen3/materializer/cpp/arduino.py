@@ -171,34 +171,29 @@ class Arduino(Materializer):
         #First we generate a new platformio project. later on, we just extend the platformio.ini file, to update the libraries
         #We didn't do that in the materialize method, because we need to know the connected boards. Otherwise, we would have to connect the board before materializing the code
         assert board is not None, "Please specify the board ID you want to deploy to. If you don't know your own board ID, please visit https://docs.platformio.org/en/latest/boards/index.html#atmel-avr and select your device."
-
         #if not os.path.isdir(os.path.join(self.path, "platformio.ini")):
         #    os.makedirs(os.path.join(self.path, "platformio.ini"))
         path = os.path.abspath(self.path)
         print(f"pio init --board {board} --project-dir {path} --project-option \" lib_deps= mike-matera/ArduinoSTL@^1.3.3 \"")
         subprocess.run(f"pio init --board {board} --project-dir {path}", shell=True)
-        print("PlatfromIO project created")
+        print("PlatformIO project created")
         time.sleep(5)
         
         print(os.path.join(path, "platformio.ini"))
         with open(os.path.join(path, "platformio.ini"), 'w') as f: #extends platformio.ini
             f.write(self.pioini_generator(board))
         print("run")
-        subprocess.run(f"pio run -d {path}", shell=True)
+        process = subprocess.run(f"pio run -d {path} -t upload; pio device monitor", shell=True)
         time.sleep(5)
         
 
         #connect with Arduino for communication
 
-        self.connect()
+        self.connect(process)
     
-    def connect(self):
-        serial_port = "/dev/ttyUSB0" #for windows, please use "COM3"
-
-        baud_rate = 9600
-
-        ser = serial.Serial(serial_port, baud_rate)
-        ser.open()
+    def connect(self, process):
+        
+        #process.run(f"pio device monitor", shell=True)
 
         XTest = self.implementation.model.XTest.astype(np.float32)
         YTest = self.implementation.model.YTest

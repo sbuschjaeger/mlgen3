@@ -95,6 +95,7 @@ std::vector<FEATURE_TYPE> read_uart(){
 
 void setup() {
   Serial.begin(9600);
+  Serial.print("connected");
   chrono.start();
 }
 
