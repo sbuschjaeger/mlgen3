@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <ArduinoSTL.h>
-#include <Chrono.h>
 
 //IMPORTANT: Due to support limitations of the library "ArduinoSTL", the code is not compatible with other platforms than AtmelAVR
 //please visit https://docs.platformio.org/en/latest/boards/index.html, to check if your device is supported.
@@ -11,10 +10,13 @@ std::vector<FEATURE_TYPE> v;
 String incomingByte;
 std::vector<FEATURE_TYPE> data;
 std::vector<LABEL_TYPE> result;
-Chrono chrono;
-unsigned long start;
-unsigned long end;
+#define BUFFER_SIZE 128
+char inputBuffer[BUFFER_SIZE];
+boolean newData = false;
+int index = 0;
 
+//checks if Arduino::String is a float.
+//@defragster https://forum.pjrc.com/index.php?threads/testing-if-a-string-is-numeric.27842/#post-65572
 
 void printVector(std::vector<OUTPUT_TYPE> v){
   for (unsigned int i = 0; i < v.size(); i++) {
@@ -22,10 +24,6 @@ void printVector(std::vector<OUTPUT_TYPE> v){
   }
   Serial.println("---"); //to indicate that output is over
 }
-
-
-//checks if Arduino::String is a float.
-//@defragster https://forum.pjrc.com/index.php?threads/testing-if-a-string-is-numeric.27842/#post-65572
 
 bool isNumeric(const char* str) {
   byte ii = 0;
@@ -54,58 +52,92 @@ bool isNumeric(const char* str) {
 std::vector<FEATURE_TYPE> read_uart(){
 	//read input String into a FEATURE_TYPE Vector
 	v.clear();
-	if(Serial.available() > 0){
-		incomingByte = Serial.readStringUntil('\n');
-		
+
+  	while (Serial.available() > 0 && newData == false) {
+    char receivedChar = Serial.read();
+    static byte ndx = 0; 
+    if (receivedChar != '\n') { 
+      inputBuffer[ndx] = receivedChar;
+      ndx++;
+      if (ndx >= BUFFER_SIZE) {
+        ndx = BUFFER_SIZE - 1;
+        Serial.println("BUFFER OVERFLOW");
+      }
+    } else {
+      inputBuffer[ndx] = '\0'; //end of String
+      ndx = 0;
+	  newData = true;
+    }
+	}
+		if(newData){
+		incomingByte = inputBuffer;
+		//incomingByte = Serial.readStringUntil('\n');
+		strcpy(inputBuffer, "");
 		while (incomingByte.length() > 0)
 		{
-			int index = incomingByte.indexOf(' ');
+      incomingByte.trim();
+			index = incomingByte.indexOf(' ');
 			if (index == -1) // No space found
 			{
-				if (isNumeric(incomingByte.c_str())) {
-					v.push_back(incomingByte.{conversion_method});
+				if (isNumeric(incomingByte.substring(0,1).c_str())) { //last char is '\0', so we need to use length-1
+					v.push_back(incomingByte.substring(0,1).{conversion_method});
 				}
 				else {
-					Serial.println("Error: input type does not match feature type");
+					Serial.println("Error: input type does not match feature type1");
 				}
 				break;
 			}
 			else
 			{
-				if(isNumeric(incomingByte.substring(0, index).c_str())){
+       if(isNumeric(incomingByte.substring(0, index).c_str())){
 					v.push_back(incomingByte.substring(0, index).{conversion_method});
 				}
 				else{
-					Serial.println("Error: input type does not match feature type");
+					Serial.println("Error: input type does not match feature type2");
 					break;
 				}
 			incomingByte = incomingByte.substring(index+1);
 			}
 		}
-	}
+		newData = false;
+		}
+	
 	
 	return v;
+}
+
+int vectorArgmax(const std::vector<OUTPUT_TYPE>& vector) {
+    if (vector.empty()) {
+        return -1;
+    }
+    
+    OUTPUT_TYPE maxVal = vector[0];
+    int maxIndex = 0;
+    
+    for (size_t i = 1; i < vector.size(); i++) {
+        if (vector[i] > maxVal) {
+            maxVal = vector[i];
+            maxIndex = i;
+        }
+    }
+    
+    return maxIndex;
 }
 
 
 void setup() {
   Serial.begin(9600);
-  Serial.print("connected");
-  chrono.start();
+  //Serial.print("connected");
 }
 
 void loop() {
-    incomingByte = "";
+	incomingByte = "";
     data = read_uart();
 	if(data.size()>0){
-		chrono.restart();
-		start = chrono.elapsed();
+    //printVector(data);
 		result = predict(data);
-		end = chrono.elapsed();
-		Serial.print("Result: ");
-		printVector(result);
-		Serial.print("prediction time: ");
-		Serial.println(end - start);
-
+	  Serial.println(vectorArgmax(result));
+		//printVector(result);
+		data.clear();
 	}
 }

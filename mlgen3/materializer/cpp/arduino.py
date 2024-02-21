@@ -5,8 +5,10 @@ import numpy as np
 import pandas as pd
 from importlib_resources import files
 import re
-import serial 
+import serial
 import time
+from sklearn import tree
+import sklearn
 
 from ..materializer import Materializer
 
@@ -95,25 +97,6 @@ class Arduino(Materializer):
         return main_str
 
 
-    def detect_connected_boards(self):
-        output = subprocess.check_output(["platformio", "device", "list"]).decode("utf-8")
-        print('a')
-        first_line = output.splitlines()[0]
-        print('b')
-        return first_line
-        
-         # search for boards with regex
-        pattern = r"^(.*?)\s+(.*?)\s+\w+"
-        matches = re.findall(pattern, output, re.MULTILINE)
-    
-        connected_boards = []
-    
-        # extract connected boards
-        for match in matches:
-            board = match[1].strip()
-            connected_boards.append(board)
-
-        return connected_boards
 
     def pioini_generator(self, board):
         main_str = f"[env:{board}] \n platform = atmelavr \n board = {board} \n framework = arduino \n lib_deps = mike-matera/ArduinoSTL@^1.3.3"
@@ -122,94 +105,57 @@ class Arduino(Materializer):
             main_str += "\n     thomasfredericks/Chrono@^1.2.0"
         return main_str
 
-    def generate_tests(self):
-        main_str = files('mlgen3.materializer.cpp').joinpath('linuxstandalone_main.template').read_text()
-        
-        start_measurement = ""
-        end_measurement = ""
-        measure_results = ""
-        print_measurements = ""
-
-        if self.measure_time:
-            start_measurement += "auto start = std::chrono::high_resolution_clock::now();"
-            end_measurement += """
-                auto end = std::chrono::high_resolution_clock::now();   
-                auto runtime = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count()) / (X.size() * repeat);
-            """
-        
-        if self.measure_accuracy:
-            end_measurement += "float accuracy = static_cast<float>(matches) / X.size() * 100.f;"
-        
-        if self.measure_time and not self.measure_accuracy:
-            measure_results = "return runtime;"
-            print_measurements = """
-                std::cout << "Latency: " << results << " [ms/elem]" << std::endl;
-            """
-        elif not self.measure_time and self.measure_accuracy:
-            measure_results = "return accuracy;"
-            print_measurements = """std::cout << "Accuracy: " << accuracy << " %" << std::endl;"""
-        elif self.measure_time and self.measure_accuracy:
-            measure_results = "return std::make_pair(accuracy, runtime);"
-            print_measurements = """
-                std::cout << "Accuracy: " << results.first << " %" << std::endl;
-                std::cout << "Latency: " << results.second << " [ms/elem]" << std::endl;
-            """
-
-        # TODO this is currently hard-coded. Remove LABEL_TYPE 
-        typedefinitions = f"""
-            #include "{self.filename}.h"    
-            typedef {self.implementation.label_type} OUTPUT_TYPE;
-            typedef unsigned int LABEL_TYPE;
-            typedef {self.implementation.feature_type} FEATURE_TYPE;
-            """
-
-        main_str = main_str.replace("{start_measurement}", start_measurement).replace("{end_measurement}", end_measurement).replace("{measure_results}", measure_results).replace("{print_measurements}", print_measurements).replace("{typedefinitions}", typedefinitions)
-        
-        return main_str
     
     def deploy(self, board = None):
-        #First we generate a new platformio project. later on, we just extend the platformio.ini file, to update the libraries
-        #We didn't do that in the materialize method, because we need to know the connected boards. Otherwise, we would have to connect the board before materializing the code
+        #First we generate a new platformio project. To update the libraries, we just extend the platformio.ini file
+        #We didn't do that in the materialize method, because we need to know the ID of the connected board. Otherwise, we would have to connect the board before materializing the code
         assert board is not None, "Please specify the board ID you want to deploy to. If you don't know your own board ID, please visit https://docs.platformio.org/en/latest/boards/index.html#atmel-avr and select your device."
-        #if not os.path.isdir(os.path.join(self.path, "platformio.ini")):
-        #    os.makedirs(os.path.join(self.path, "platformio.ini"))
+
         path = os.path.abspath(self.path)
-        print(f"pio init --board {board} --project-dir {path} --project-option \" lib_deps= mike-matera/ArduinoSTL@^1.3.3 \"")
+        #print(f"pio init --board {board} --project-dir {path} --project-option \" lib_deps= mike-matera/ArduinoSTL@^1.3.3 \"")
         subprocess.run(f"pio init --board {board} --project-dir {path}", shell=True)
         print("PlatformIO project created")
         time.sleep(5)
         
-        print(os.path.join(path, "platformio.ini"))
+        #print(os.path.join(path, "platformio.ini"))
         with open(os.path.join(path, "platformio.ini"), 'w') as f: #extends platformio.ini
             f.write(self.pioini_generator(board))
-        print("run")
+        print("build and upload PlatformIO project")
         process = subprocess.run(f"pio run -d {path} -t upload; pio device monitor", shell=True)
-        time.sleep(5)
         
+       
 
         #connect with Arduino for communication
 
-        self.connect(process)
+        self.connect()
     
-    def connect(self, process):
+    def connect(self):
+  
+        assert self.implementation.model.XTest is not None and self.implementation.model.YTest is not None
+        ser = serial.Serial('/dev/ttyACM0', 9600) #connects to the Arduino via serial port
+ 
+        ser.flushInput()
         
-        #process.run(f"pio device monitor", shell=True)
+        model = self.implementation.model
 
-        XTest = self.implementation.model.XTest.astype(np.float32)
+        XTest = self.implementation.model.XTest
         YTest = self.implementation.model.YTest
-        
-        try:
-            for x,y in XTest,YTest:
-                ser.write(str(x).encode()+b"\n")
 
-                time.sleep(1)
+        for x,y in zip(XTest.values, YTest.values):
+            input = (str(x)[1:-1]).replace("\n", "") #deletes newline breaks
+            input = input.encode()
+            #print(input)
+            ser.write(input+b"\n")
+              
+            time.sleep(1)
+            
+            response = ser.read(ser.in_waiting).strip()
+                
+            print("arduino response:", response)
+            print("sklearn response:", model.predict(x.reshape(1, -1)))
+            #print("input; ", x)
+            #print("label:", y)
 
-                response = ser.readline()
-                print("response:", response.decode().strip())
-                print("label:", y)
-
-        except KeyboardInterrupt:
-            ser.close() #kills connection if program closed
 
         
 
