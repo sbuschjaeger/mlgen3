@@ -10,19 +10,36 @@ std::vector<FEATURE_TYPE> v;
 String incomingByte;
 std::vector<FEATURE_TYPE> data;
 std::vector<LABEL_TYPE> result;
-#define BUFFER_SIZE 128
-char inputBuffer[BUFFER_SIZE];
-boolean newData = false;
-int index = 0;
+ 
+
 
 //checks if Arduino::String is a float.
 //@defragster https://forum.pjrc.com/index.php?threads/testing-if-a-string-is-numeric.27842/#post-65572
 
 void printVector(std::vector<OUTPUT_TYPE> v){
   for (unsigned int i = 0; i < v.size(); i++) {
-    Serial.println(v[i]);
+    Serial.print(v[i]);
+    Serial.print(" ");
   }
   Serial.println("---"); //to indicate that output is over
+}
+
+int vectorArgmax(const std::vector<OUTPUT_TYPE>& vector) {
+    if (vector.empty()) {
+        return -1;
+    }
+    
+    OUTPUT_TYPE maxVal = vector[0];
+    int maxIndex = 0;
+    
+    for (size_t i = 1; i < vector.size(); i++) {
+        if (vector[i] > maxVal) {
+            maxVal = vector[i];
+            maxIndex = i;
+        }
+    }
+    
+    return maxIndex;
 }
 
 bool isNumeric(const char* str) {
@@ -49,95 +66,70 @@ bool isNumeric(const char* str) {
   return RetVal;
 }
 
-std::vector<FEATURE_TYPE> read_uart(){
-	//read input String into a FEATURE_TYPE Vector
-	v.clear();
-
-  	while (Serial.available() > 0 && newData == false) {
-    char receivedChar = Serial.read();
-    static byte ndx = 0; 
-    if (receivedChar != '\n') { 
-      inputBuffer[ndx] = receivedChar;
-      ndx++;
-      if (ndx >= BUFFER_SIZE) {
-        ndx = BUFFER_SIZE - 1;
-        Serial.println("BUFFER OVERFLOW");
+std::vector<FEATURE_TYPE> read_uart() {
+  // Read bytes and accumulate them into a buffer
+  v.clear();
+  String buffer = "";
+  int featureCounter = 0;
+  while (Serial.available() > 0) {
+    float byteRead = Serial.parseFloat();
+    //if (byteRead == '\n') { // End of string marker
+      v.push_back(byteRead);
+      featureCounter++;
+      //buffer = "";
+      //byteRead = "";
+      if(featureCounter >= AMOUNT_FEATURES){
+          break;
       }
-    } else {
-      inputBuffer[ndx] = '\0'; //end of String
-      ndx = 0;
-	  newData = true;
-    }
-	}
-		if(newData){
-		incomingByte = inputBuffer;
-		//incomingByte = Serial.readStringUntil('\n');
-		strcpy(inputBuffer, "");
-		while (incomingByte.length() > 0)
-		{
-      incomingByte.trim();
-			index = incomingByte.indexOf(' ');
-			if (index == -1) // No space found
-			{
-				if (isNumeric(incomingByte.substring(0,1).c_str())) { //last char is '\0', so we need to use length-1
-					v.push_back(incomingByte.substring(0,1).{conversion_method});
-				}
-				else {
-					Serial.println("Error: input type does not match feature type1");
-				}
-				break;
-			}
-			else
-			{
-       if(isNumeric(incomingByte.substring(0, index).c_str())){
-					v.push_back(incomingByte.substring(0, index).{conversion_method});
-				}
-				else{
-					Serial.println("Error: input type does not match feature type2");
-					break;
-				}
-			incomingByte = incomingByte.substring(index+1);
-			}
-		}
-		newData = false;
-		}
-	
-	
-	return v;
+    //}
+    //buffer += byteRead;
+  }
+  
+  /*
+  // Process the buffer
+  v.clear();
+  while (buffer.length() > 0) {
+    float parsedValue;
+    while (Serial.available() > 0) {
+      parsedValue = Serial.parseFloat();
+       if (parsedValue != NAN) {
+       break;
+      }
 }
+    if (parsedValue != NAN) { // Data parsed successfully
+      v.push_back(parsedValue); // Assuming FEATURE_TYPE is float
+    } else {
+      Serial.println("Error: Failed to parse float value");
+      break;
+    }
 
-int vectorArgmax(const std::vector<OUTPUT_TYPE>& vector) {
-    if (vector.empty()) {
-        return -1;
+    // Remove parsed value from buffer
+    int parsedIndex = buffer.indexOf(' ');
+    if (parsedIndex == -1) {
+      buffer = ""; // No more values
+    } else {
+      buffer = buffer.substring(parsedIndex + 1);
     }
-    
-    OUTPUT_TYPE maxVal = vector[0];
-    int maxIndex = 0;
-    
-    for (size_t i = 1; i < vector.size(); i++) {
-        if (vector[i] > maxVal) {
-            maxVal = vector[i];
-            maxIndex = i;
-        }
-    }
-    
-    return maxIndex;
+  }
+  */
+
+  return v;
 }
 
 
 void setup() {
   Serial.begin(9600);
-  //Serial.print("connected");
+  Serial.print("connected");
 }
 
 void loop() {
-	incomingByte = "";
+    incomingByte = "";
     data = read_uart();
 	if(data.size()>0){
     //printVector(data);
 		result = predict(data);
-	  Serial.println(vectorArgmax(result));
 		//printVector(result);
-		data.clear();
+    Serial.println(vectorArgmax(result));
+    data.clear();
 	}
 }

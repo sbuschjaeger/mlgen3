@@ -16,13 +16,14 @@ from ..materializer import Materializer
 class Arduino(Materializer):
     #Has a _code variable with <label_type> predict(<feature_type>[] pX);
 
-    def __init__(self, implementation, filename = None, measure_accuracy=False, measure_time=False, measure_perf=False, compiler="g++"):
+    def __init__(self, implementation, amount_features, filename = None, measure_accuracy=False, measure_time=False, measure_perf=False, compiler="g++"):
         super().__init__(implementation)
         self.measure_accuracy = measure_accuracy
         self.measure_time = measure_time
         self.measure_perf = measure_perf
         self.filename = "model" if (filename is None) or (filename == "main") else filename #main.cpp is hardcoded in the arduino materialize method
         self.compiler = compiler
+        self.amount_features = amount_features
 
         # TODO Implement perf performance tests
         assert measure_perf is False, "Perf performance tests are currently not implemented."
@@ -78,6 +79,7 @@ class Arduino(Materializer):
             typedef {self.implementation.label_type} OUTPUT_TYPE;
             typedef {self.implementation.label_type} LABEL_TYPE;
             typedef {self.implementation.feature_type} FEATURE_TYPE;
+            const int AMOUNT_FEATURES = {self.amount_features};
             """
         
         if self.implementation.feature_type == "float":
@@ -143,16 +145,19 @@ class Arduino(Materializer):
 
         for x,y in zip(XTest.values, YTest.values):
             input = (str(x)[1:-1]).replace("\n", "") #deletes newline breaks
-            input = input.encode()
-            #print(input)
-            ser.write(input+b"\n")
+            features = input.split(" ")
+            for feature in features:
+                feature = feature.encode()
+                #print(input)
+                ser.write(feature+b"\n")
               
-            time.sleep(1)
+            time.sleep(2)
             
             response = ser.read(ser.in_waiting).strip()
                 
             print("arduino response:", response)
             print("sklearn response:", model.predict(x.reshape(1, -1)))
+            #print("python input", str(x))
             #print("input; ", x)
             #print("label:", y)
 

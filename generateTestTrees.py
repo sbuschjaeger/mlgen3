@@ -31,7 +31,7 @@ if __name__ == "__main__":
     native = Native(tree, feature_type="double", label_type="double")
     native.implement()
     
-    materializer = Arduino(native, measure_time=True)
+    materializer = Arduino(native, measure_time=True, amount_features= len(X.columns))  
     native.model.XTest = X_test
     native.model.YTest = Y_test
 
