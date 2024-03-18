@@ -1,0 +1,91 @@
+#include <Arduino.h>
+#include <ArduinoSTL.h>
+
+//IMPORTANT: Due to support limitations of the library "ArduinoSTL", the code is not compatible with other platforms than AtmelAVR
+//please visit https://docs.platformio.org/en/latest/boards/index.html, to check if your device is supported.
+
+{typedefinitions}
+
+std::vector<FEATURE_TYPE> v;
+String incomingByte;
+std::vector<FEATURE_TYPE> data;
+std::vector<LABEL_TYPE> result;
+ 
+
+int vectorArgmax(const std::vector<OUTPUT_TYPE>& vector) {
+    if (vector.empty()) {
+        return -1;
+    }
+    
+    OUTPUT_TYPE maxVal = vector[0];
+    int maxIndex = 0;
+    
+    for (size_t i = 1; i < vector.size(); i++) {
+        if (vector[i] > maxVal) {
+            maxVal = vector[i];
+            maxIndex = i;
+        }
+    }
+    
+    return maxIndex;
+}
+
+//checks if Arduino::String is a float.
+//@defragster https://forum.pjrc.com/index.php?threads/testing-if-a-string-is-numeric.27842/#post-65572
+
+bool isNumeric(const char* str) {
+  byte ii = 0;
+  bool RetVal = false;
+  if ( '-' == str[ii] )
+    ii++;
+  while (str[ii])
+  {
+    if ( '.' == str[ii] ) {
+      ii++;
+      break;
+    }
+    if (!isdigit(str[ii])) return false;
+    ii++;
+    RetVal = true;
+  }
+  while (str[ii])
+  {
+    if (!isdigit(str[ii])) return false;
+    ii++;
+    RetVal = true;
+  }
+  return RetVal;
+}
+
+std::vector<FEATURE_TYPE> read_uart() {
+  // Read bytes and accumulate them into a buffer
+  v.clear();
+  String buffer = "";
+  int featureCounter = 0;
+  while (Serial.available() > 0) {
+    float byteRead = Serial.parseFloat();
+    FEATURE_TYPE input = (FEATURE_TYPE) byteRead;
+    v.push_back(input);
+      featureCounter++;
+      if(featureCounter >= AMOUNT_FEATURES){
+          break;
+      }
+  }
+
+  return v;
+}
+
+
+void setup() {
+  Serial.begin(9600);
+}
+
+void loop() {
+    incomingByte = "";
+    data = read_uart();
+	if(data.size()>0){
+		result = predict(data);
+    Serial.println(vectorArgmax(result));
+    data.clear();
+	}
+}
