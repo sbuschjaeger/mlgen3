@@ -10,17 +10,28 @@ std::vector<FEATURE_TYPE> v;
 String incomingByte;
 std::vector<FEATURE_TYPE> data;
 std::vector<LABEL_TYPE> result;
+ 
 
+int vectorArgmax(const std::vector<OUTPUT_TYPE>& vector) {
+    if (vector.empty()) {
+        return -1;
+    }
+    
+    OUTPUT_TYPE maxVal = vector[0];
+    int maxIndex = 0;
+    
+    for (size_t i = 1; i < vector.size(); i++) {
+        if (vector[i] > maxVal) {
+            maxVal = vector[i];
+            maxIndex = i;
+        }
+    }
+    
+    return maxIndex;
+}
 
 //checks if Arduino::String is a float.
 //@defragster https://forum.pjrc.com/index.php?threads/testing-if-a-string-is-numeric.27842/#post-65572
-
-void printVector(std::vector<OUTPUT_TYPE> v){
-  for (unsigned int i = 0; i < v.size(); i++) {
-    Serial.println(v[i]);
-  }
-  Serial.println("---"); //to indicate that output is over
-}
 
 bool isNumeric(const char* str) {
   byte ii = 0;
@@ -46,46 +57,27 @@ bool isNumeric(const char* str) {
   return RetVal;
 }
 
-std::vector<FEATURE_TYPE> read_uart(){
-	//read input String into a FEATURE_TYPE Vector
-	v.clear();
-	if(Serial.available() > 0){
-		incomingByte = Serial.readStringUntil('\n');
-		
-		while (incomingByte.length() > 0)
-		{
-			int index = incomingByte.indexOf(' ');
-			if (index == -1) // No space found
-			{
-				if (isNumeric(incomingByte.c_str())) {
-					v.push_back(incomingByte.{conversion_method});
-				}
-				else {
-					Serial.println("Error: input type does not match feature type");
-				}
-				break;
-			}
-			else
-			{
-				if(isNumeric(incomingByte.substring(0, index).c_str())){
-					v.push_back(incomingByte.substring(0, index).{conversion_method});
-				}
-				else{
-					Serial.println("Error: input type does not match feature type");
-					break;
-				}
-			incomingByte = incomingByte.substring(index+1);
-			}
-		}
-	}
-	
-	return v;
+std::vector<FEATURE_TYPE> read_uart() {
+  // Read bytes and accumulate them into a buffer
+  v.clear();
+  String buffer = "";
+  int featureCounter = 0;
+  while (Serial.available() > 0) {
+    float byteRead = Serial.parseFloat();
+    FEATURE_TYPE input = (FEATURE_TYPE) byteRead;
+    v.push_back(input);
+      featureCounter++;
+      if(featureCounter >= AMOUNT_FEATURES){
+          break;
+      }
+  }
+
+  return v;
 }
 
 
 void setup() {
   Serial.begin(9600);
-  Serial.print("connected");
 }
 
 void loop() {
@@ -93,6 +85,7 @@ void loop() {
     data = read_uart();
 	if(data.size()>0){
 		result = predict(data);
-		printVector(result);
+    Serial.println(vectorArgmax(result));
+    data.clear();
 	}
 }

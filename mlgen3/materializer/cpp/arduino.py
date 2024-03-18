@@ -124,74 +124,10 @@ class Arduino(Materializer):
             f.write(self.pioini_generator(board))
         print("build and upload PlatformIO project")
         process = subprocess.run(f"pio run -d {path} -t upload; pio device monitor", shell=True)
+
+    def run(self): #after deployment code already runs. so deploying and running the code cannot be split
+        pass
         
-       
-
-        #connect with Arduino for communication
-
-        self.connect()
-    
-    def connect(self):
-  
-        assert self.implementation.model.XTest is not None and self.implementation.model.YTest is not None
-        ser = serial.Serial('/dev/ttyACM0', 9600) #connects to the Arduino via serial port
- 
-        ser.flushInput()
-        
-        model = self.implementation.model
-
-        XTest = self.implementation.model.XTest
-        YTest = self.implementation.model.YTest
-
-        for x,y in zip(XTest.values, YTest.values):
-            input = (str(x)[1:-1]).replace("\n", "") #deletes newline breaks
-            features = input.split(" ")
-            for feature in features:
-                feature = feature.encode()
-                #print(input)
-                ser.write(feature+b"\n")
-              
-            time.sleep(2)
-            
-            response = ser.read(ser.in_waiting).strip()
-                
-            print("arduino response:", response)
-            print("sklearn response:", model.predict(x.reshape(1, -1)))
-            #print("python input", str(x))
-            #print("input; ", x)
-            #print("label:", y)
-
-
-        
-
-      ############################################
-        # TODO This is a bit weird, refactor it?
-        XTest = self.implementation.model.XTest.astype(np.float32)
-        YTest = self.implementation.model.YTest
-        dfTest = pd.concat([pd.DataFrame(XTest, columns=["f{}".format(i) for i in range(len(XTest[0]))]), pd.DataFrame(YTest,columns=["label"])], axis=1)
-        dfTest.to_csv(os.path.join(self.path, "testing.csv"), header=True, index=False)
-        
-    def run(self, verbose = False):
-        make_res = subprocess.run(f"cd {self.path} && make", capture_output=True, text=True, shell=True)
-        if verbose:
-            print(f"Running cd {self.path} && make")
-            print(f"stdout: \n{make_res.stdout}")
-            print(f"stderr: \n{make_res.stderr}")
-        run_res = subprocess.run(f"cd {self.path} && ./{self.filename} testing.csv 2", capture_output=True, text=True, shell=True)
-        
-        if verbose:
-            print(f"cd {self.path} && ./{self.filename} testing.csv 2")
-            print(f"stdout: \n{run_res.stdout}")
-            print(f"stderr: \n{run_res.stderr}")
-
-        metrics = {}
-        lines = run_res.stdout.split("\n")
-        for cur_line in lines:
-            if len(cur_line) > 0:
-                l = cur_line.split(":")
-                metrics[l[0]] = l[1].split(" ")[1]
-        
-        return metrics
 
     def clean(self):
         if self.path is not None and os.path.exists(self.path):

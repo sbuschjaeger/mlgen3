@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <ArduinoSTL.h>
+#include <Chrono.h>
 
 //IMPORTANT: Due to support limitations of the library "ArduinoSTL", the code is not compatible with other platforms than AtmelAVR
 //please visit https://docs.platformio.org/en/latest/boards/index.html, to check if your device is supported.
@@ -10,19 +11,12 @@ std::vector<FEATURE_TYPE> v;
 String incomingByte;
 std::vector<FEATURE_TYPE> data;
 std::vector<LABEL_TYPE> result;
+
+//for time measurement
+Chrono chrono;
+unsigned long start;
+unsigned long end;
  
-
-
-//checks if Arduino::String is a float.
-//@defragster https://forum.pjrc.com/index.php?threads/testing-if-a-string-is-numeric.27842/#post-65572
-
-void printVector(std::vector<OUTPUT_TYPE> v){
-  for (unsigned int i = 0; i < v.size(); i++) {
-    Serial.print(v[i]);
-    Serial.print(" ");
-  }
-  Serial.println("---"); //to indicate that output is over
-}
 
 int vectorArgmax(const std::vector<OUTPUT_TYPE>& vector) {
     if (vector.empty()) {
@@ -41,6 +35,9 @@ int vectorArgmax(const std::vector<OUTPUT_TYPE>& vector) {
     
     return maxIndex;
 }
+
+//checks if Arduino::String is a float.
+//@defragster https://forum.pjrc.com/index.php?threads/testing-if-a-string-is-numeric.27842/#post-65572
 
 bool isNumeric(const char* str) {
   byte ii = 0;
@@ -73,45 +70,13 @@ std::vector<FEATURE_TYPE> read_uart() {
   int featureCounter = 0;
   while (Serial.available() > 0) {
     float byteRead = Serial.parseFloat();
-    //if (byteRead == '\n') { // End of string marker
-      v.push_back(byteRead);
+    FEATURE_TYPE input = (FEATURE_TYPE) byteRead;
+    v.push_back(input);
       featureCounter++;
-      //buffer = "";
-      //byteRead = "";
       if(featureCounter >= AMOUNT_FEATURES){
           break;
       }
-    //}
-    //buffer += byteRead;
   }
-  
-  /*
-  // Process the buffer
-  v.clear();
-  while (buffer.length() > 0) {
-    float parsedValue;
-    while (Serial.available() > 0) {
-      parsedValue = Serial.parseFloat();
-       if (parsedValue != NAN) {
-       break;
-      }
-}
-    if (parsedValue != NAN) { // Data parsed successfully
-      v.push_back(parsedValue); // Assuming FEATURE_TYPE is float
-    } else {
-      Serial.println("Error: Failed to parse float value");
-      break;
-    }
-
-    // Remove parsed value from buffer
-    int parsedIndex = buffer.indexOf(' ');
-    if (parsedIndex == -1) {
-      buffer = ""; // No more values
-    } else {
-      buffer = buffer.substring(parsedIndex + 1);
-    }
-  }
-  */
 
   return v;
 }
@@ -119,17 +84,21 @@ std::vector<FEATURE_TYPE> read_uart() {
 
 void setup() {
   Serial.begin(9600);
-  Serial.print("connected");
+  chrono.start();
 }
 
 void loop() {
     incomingByte = "";
     data = read_uart();
-	if(data.size()>0){
-    //printVector(data);
-		result = predict(data);
-		//printVector(result);
-    Serial.println(vectorArgmax(result));
-    data.clear();
-	}
+	  if(data.size()>0){
+      chrono.restart();
+      start = chrono.elapsed();
+		  result = predict(data);
+      end = chrono.elapsed();
+      Serial.print("result: ");
+      Serial.println(vectorArgmax(result));
+      Serial.print("prediction time: ");
+      Serial.println(end-start);
+      data.clear();
+	  }
 }
