@@ -16,6 +16,7 @@ class TestArduino(unittest.TestCase):
 
     materializer = 0
     
+    #tests if the materializer can generate the c++ files
     def testMaterialize(self):
         materializer.materialize("./testmodels/")
 
@@ -25,7 +26,7 @@ class TestArduino(unittest.TestCase):
         assert os.path.isfile("./testmodels/src/model.h")
         assert os.path.isfile("./testmodels/src/main.cpp")
     
-
+    #tests if the materializer can deploy the c++ files to an Arduino board
     def testDeploy(self):
         materializer.deploy(board = "uno")
 
@@ -44,7 +45,8 @@ class TestArduino(unittest.TestCase):
         
 
 
-        #please connect an Arduino Uno for testing
+        #please connect an Arduino Uno for testing. otherwise, please change the board ID to your own board ID in the main function
+        # to look up your board ID, visit https://docs.platformio.org/en/latest/boards/index.html#atmel-avr
     def testAccuracy(self):
         assert materializer.implementation.model.XTest is not None and materializer.implementation.model.YTest is not None
         with serial.Serial('/dev/ttyACM0', 9600) as ser: #connects to the Arduino via serial port
@@ -90,7 +92,7 @@ class TestArduino(unittest.TestCase):
 
 if __name__ == "__main__":
 
-    # Load data
+    # Loads random data, to check if the prediction results on the arduino are equal to the prediction results of the sklearn model
     dataFrame = pd.read_csv("testing.csv")
     Y = dataFrame.pop("label")
     X = dataFrame

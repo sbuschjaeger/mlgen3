@@ -12,7 +12,8 @@ import sklearn
 
 from ..materializer import Materializer
 
-
+#Arduino materializer takes an sklearn implementation and generates a C++ implementation for the Arduino platform
+#The generated code is then compiled and uploaded to the Arduino board
 class Arduino(Materializer):
     #Has a _code variable with <label_type> predict(<feature_type>[] pX);
 
@@ -39,8 +40,8 @@ class Arduino(Materializer):
         except ImportError:
             return s
 
+    #creates the c++ files that implement the model
     def materialize(self, path):
-        # I dont why we need to call this here. This does not really make sense? Why do we need to store the path? Simply for the deploy step? 
         super().materialize(path)
 
         if not os.path.isdir(self.path+"src"):
@@ -57,7 +58,7 @@ class Arduino(Materializer):
 
 
 
-    
+    #main.cpp is the file, that is executed on the Arduino board. It reads the input from the serial port, calls the predict function and writes the output to the serial port
     def generate_maincpp(self):
         main_str = ""
 
@@ -82,24 +83,17 @@ class Arduino(Materializer):
             const int AMOUNT_FEATURES = {self.amount_features};
             """
         
-        if self.implementation.feature_type == "float":
-            conversion_method =  "toFloat()"
-        else:
-            if self.implementation.feature_type == "double":
-                conversion_method = "toDouble()"
-            else:
-                if self.implementation.feature_type == "int":
-                    conversion_method = "toInt()"
-                else:
-                    raise ValueError(f"Feature type {self.implementation.feature_type} is not supported by the Arduino materializer")
-
-        main_str = main_str.replace("{typedefinitions}", typedefinitions).replace("{conversion_method}", conversion_method)
+        main_str = main_str.replace("{typedefinitions}", typedefinitions)
         
 
         return main_str
 
 
-
+    #generates the platformio.ini file, which is used by the PlatformIO build system.
+    #The platformio.ini file specifies the board, the framework and the libraries that are used.
+    # 'board' is a string that specifies the board that is used. It is the ID of the board. For example, the ID of the Arduino Uno is 'uno'.
+    # For checking the ID of your board, visit https://docs.platformio.org/en/latest/boards/index.html and select your device.
+    # Keep in mind to use boards based on the atmelavr platform. Otherwise the ArduinoSTL is not supported.
     def pioini_generator(self, board):
         main_str = f"[env:{board}] \n platform = atmelavr \n board = {board} \n framework = arduino \n lib_deps = mike-matera/ArduinoSTL@^1.3.3"
 
@@ -107,23 +101,21 @@ class Arduino(Materializer):
             main_str += "\n     thomasfredericks/Chrono@^1.2.0"
         return main_str
 
-    
+    # generates platformio project and deploys it to a board
     def deploy(self, board = None):
         #First we generate a new platformio project. To update the libraries, we just extend the platformio.ini file
         #We didn't do that in the materialize method, because we need to know the ID of the connected board. Otherwise, we would have to connect the board before materializing the code
         assert board is not None, "Please specify the board ID you want to deploy to. If you don't know your own board ID, please visit https://docs.platformio.org/en/latest/boards/index.html#atmel-avr and select your device."
 
         path = os.path.abspath(self.path)
-        #print(f"pio init --board {board} --project-dir {path} --project-option \" lib_deps= mike-matera/ArduinoSTL@^1.3.3 \"")
-        subprocess.run(f"pio init --board {board} --project-dir {path}", shell=True)
+        subprocess.run(f"pio init --board {board} --project-dir {path}", shell=True) #creates platformio project
         print("PlatformIO project created")
         time.sleep(5)
         
-        #print(os.path.join(path, "platformio.ini"))
         with open(os.path.join(path, "platformio.ini"), 'w') as f: #extends platformio.ini
             f.write(self.pioini_generator(board))
         print("build and upload PlatformIO project")
-        process = subprocess.run(f"pio run -d {path} -t upload; pio device monitor", shell=True)
+        process = subprocess.run(f"pio run -d {path} -t upload; pio device monitor", shell=True) #builds project and uploads it to the board
 
     def run(self): #after deployment code already runs. so deploying and running the code cannot be split
         pass
