@@ -9,7 +9,7 @@ class PredcitionType(Enum):
 
 class Model(ABC):
 
-    #Keep x,y, trainconfig, ... rememebered
+    #Keep x,y, trainconfig, ... remembered
     # x_train, y_train, x_test, y_test
 
     def __init__(self, prediction_type):
