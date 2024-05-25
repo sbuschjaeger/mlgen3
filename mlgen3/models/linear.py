@@ -1,9 +1,9 @@
 import numpy as np
-from .model import Model, PredcitionType
+from .model import Model, PredictionType
 
 class Linear(Model):
 	def __init__(self):
-		super().__init__(PredcitionType.CLASSIFICATION)
+		super().__init__(PredictionType.CLASSIFICATION)
 		self.coef = []
 		self.intercept = []
 

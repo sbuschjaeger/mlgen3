@@ -8,7 +8,7 @@ import os
 import serial
 import time
 
-from mlgen3.implemantations.tree.cpp.native import Native
+from mlgen3.implementations.tree.cpp.native import Native
 from mlgen3.materializer.cpp.arduino import Arduino
 from mlgen3.models.tree_ensemble import Tree
 
