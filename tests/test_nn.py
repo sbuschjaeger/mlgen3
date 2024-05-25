@@ -7,8 +7,8 @@ import unittest
 
 from sklearn import datasets
 from sklearn.metrics import accuracy_score
-from mlgen3.implemantations.neuralnet.cpp.bnn import BNN
-from mlgen3.implemantations.neuralnet.cpp.nhwc import NHWC
+from mlgen3.implementations.neuralnet.cpp.bnn import BNN
+from mlgen3.implementations.neuralnet.cpp.nhwc import NHWC
 from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 from mlgen3.models.nn.batchnorm import BatchNorm 
 from mlgen3.models.nn.activations import Relu, Sigmoid, Sign, Step

@@ -8,8 +8,8 @@ import unittest
 from sklearn import datasets
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import accuracy_score
-from mlgen3.implemantations.tree.cpp.ifelse import IfElse
-from mlgen3.implemantations.tree.cpp.native import Native
+from mlgen3.implementations.tree.cpp.ifelse import IfElse
+from mlgen3.implementations.tree.cpp.native import Native
 from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 
 from mlgen3.models.tree_ensemble.tree import Tree

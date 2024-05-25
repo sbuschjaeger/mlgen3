@@ -3,11 +3,11 @@ import numpy as np
 import json
 
 from .tree import Tree
-from ..model import Model, PredcitionType
+from ..model import Model, PredictionType
 
 class Forest(Model):
 	def __init__(self):
-		super().__init__(PredcitionType.CLASSIFICATION)
+		super().__init__(PredictionType.CLASSIFICATION)
 		self.trees = []
 		self.weights = []
 

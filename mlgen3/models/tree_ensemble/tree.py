@@ -2,7 +2,7 @@ import numpy as np
 
 from functools import reduce
 
-from ..model import Model, PredcitionType
+from ..model import Model, PredictionType
 
 def get_leaf_probs(node):
     """Get the class probabilities of the subtree at the given node. 
@@ -75,7 +75,7 @@ class Tree(Model):
 	"""
 
 	def __init__(self):
-		super().__init__(PredcitionType.CLASSIFICATION)
+		super().__init__(PredictionType.CLASSIFICATION)
 		# Array of all nodes
 		self.nodes = []
 

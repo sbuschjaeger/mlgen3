@@ -2,7 +2,7 @@ import copy
 from mlgen3.models.nn.activations import Step
 
 from mlgen3.models.nn.batchnorm import BatchNorm
-from ..model import Model, PredcitionType
+from ..model import Model, PredictionType
 
 class NeuralNet(Model):
 	"""A (simplified) neural network model. This class currently supports feed-forward multi-layer perceptrons as well as feed-forward convnets. In detail the following operations are supported
@@ -39,7 +39,7 @@ class NeuralNet(Model):
 			accuracy (float, optional): The accuracy of this tree on some test data. Can be used to verify the correctness of the implementation. Defaults to None.
 			name (str, optional): The name of this model. Defaults to "Model".
 		"""
-		super().__init__(PredcitionType.CLASSIFICATION)
+		super().__init__(PredictionType.CLASSIFICATION)
 		
 		self.layers = []
 

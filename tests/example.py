@@ -14,7 +14,7 @@ from mlgen3.trainers.testtrainsplit import TestTrainSplit
 #from mlgen3.trainers.testtrainsplit import TestTrainSplit
 
 from mlgen3.models.tree_ensemble.forest import Forest
-from mlgen3.implemantations.cpp.ifelse import IfElse
+from mlgen3.implementations.cpp.ifelse import IfElse
 
 from Datasets import get_dataset
 

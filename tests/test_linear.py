@@ -8,7 +8,7 @@ import unittest
 from sklearn import datasets
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
-from mlgen3.implemantations.linear.cpp.native import Native
+from mlgen3.implementations.linear.cpp.native import Native
 from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 from mlgen3.models.linear import Linear
 
