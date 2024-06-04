@@ -4,16 +4,12 @@ import numpy as np
 import sys
 import pandas as pd
 
+from .linear import Linear
 from .model import Model, PredictionType
-from mlgen3.models.nn.linear import Linear
+
+# from mlgen3.models.nn.linear import Linear
 from sktime.transformations.panel.rocket import Rocket as SK_Rocket
 from sktime.transformations.panel.rocket import MiniRocket as SK_MiniRocket
-from sktime.transformations.panel.rocket import (
-    MiniRocketMultivariate as SK_MiniRocketMultivariate,
-)
-from sktime.transformations.panel.rocket import (
-    MiniRocketMultivariateVariable as SK_MiniRocketMultivariateVariable,
-)
 from sktime.classification.kernel_based import RocketClassifier
 from sktime.pipeline import Pipeline
 
@@ -36,6 +32,8 @@ class Rocket(Model):
         self.num_channels = 0
         self.channel_indices = 0
         self.linear = 0
+        self.clases = 0
+        self.kernellist = 0
 
     def __call__(self):
         pass
@@ -43,15 +41,11 @@ class Rocket(Model):
     @classmethod
     def from_sklearn(cls, sk_model):
         if isinstance(sk_model, RocketClassifier):
-            print("missing")
+            print(
+                "RocketClassifier is currently not supported, due to missing kernel weights in the classifier.",
+                "Please use an sktime.transformation.panel.rocket object for initialization, and add a linear model with 'model.addLinear(linear)'.",
+            )
             # ...
-
-        elif isinstance(sk_model, Pipeline):
-            print("missing")
-            # ...
-            # self.dict = model.steps[0].__dict__
-            # self.kernel = self.dict["kernel"]
-            # self.linear = model.steps[2] #model.steps[1] is StandardScaler
 
         elif isinstance(sk_model, SK_Rocket) or isinstance(sk_model, SK_MiniRocket):
             rocket_model = cls()
@@ -69,6 +63,8 @@ class Rocket(Model):
             rocket_model.paddings = rocket_model.kernel[4]
             rocket_model.num_channels = rocket_model.kernel[5]
             rocket_model.channel_indices = rocket_model.kernel[6]
+            rocket_model.kernellist = rocket_model.getKernellist()
+
             return rocket_model
         else:
             raise ValueError("Model isn't part of Rocket")
@@ -81,7 +77,7 @@ class Rocket(Model):
                 data (dict): The dictionary from which this linear model should be generated.
 
         Returns:
-                Tree: The newly generated linear model.
+                Tree: The newly generated rocket model.
         """
 
         model = Rocket()
@@ -100,10 +96,10 @@ class Rocket(Model):
         return model
 
     def to_dict(self):
-        """Stores this linear model as a dictionary which can be loaded with :meth:`Linear.from_dict`.
+        """Stores this rocket model as a dictionary which can be loaded with :meth:`Rocket.from_dict`.
 
         Returns:
-                dict: The dictionary representation of this linear model.
+                dict: The dictionary representation of this rocket model.
         """
         return {
             "multivariate": self.multivariate,
@@ -118,7 +114,15 @@ class Rocket(Model):
             "num_channels": self.num_channels,
             "channel_indices": self.channel_indices,
             "linear": self.linear,
+            "classes": self.classes,
+            "kernellist": self.kernellist,
         }
+
+    def addLinear(self, sk_linear):
+        """Adds linear model to rocket. Object creation only takes the rocket transformation, but not the linear model. So we also need this method."""
+        linear = Linear.from_sklearn(sk_linear)
+        self.linear = linear
+        self.classes = sk_linear.classes_
 
     # returns a list with every entry being a kernel. every kernel is described as a quintuple of (weights:matrix, channels:list, bias:float, dilation:int, padding:int)
     def getKernellist(self):
@@ -162,12 +166,15 @@ class Rocket(Model):
         kernel_list.reverse()
         return kernel_list
 
-    def transformWithKernels(self, Xs):
-        kernellist = self.getKernellist()  # (matrix, channels, bias, dilation, padding)
+    # describes the rocket transformation that generates the features for the linear model
+    def transform(self, Xs):
+        kernellist = self.kernellist  # (matrix, channels, bias, dilation, padding)
         features = []
-        Xs = Xs.to_numpy()
+        if not isinstance(Xs, np.ndarray):
+            Xs = Xs.to_numpy()
+        num_samples = len(Xs)
 
-        for sample_index in range(len(Xs)):
+        for sample_index in range(num_samples):
             X = Xs[sample_index]
             X = np.asarray(X)
             if self.normalise:
@@ -185,15 +192,16 @@ class Rocket(Model):
                 features.append(ppv)
 
         features = np.asarray(features)
+        features = features.reshape(num_samples, -1)
         return features
 
     # Applies this linear model to the given data and provides the predicted probabilities for each example in X.
     def predict_proba(self, X):
-        features = self.transformWithKernels(X)
-
-        # linear layer isn't added yet. So it just returns the features and acts as a Rocket Panel
-        return features
-        # return self.linear(features)
+        assert self.linear != 0, "Linear model is missing"
+        features = self.transform(X)
+        results = self.linear.predict_proba(features)
+        argmax_results = np.argmax(results, axis=1, keepdims=False)
+        return np.asarray([self.classes[index] for index in argmax_results])
 
     def implement(self):
         assert self.linear is not None, "Linear model has to be set before implementing"
@@ -250,7 +258,7 @@ class Rocket(Model):
         end = (timeseries_length + padding) - ((kernel_length - 1) * dilation)
 
         # we skipped to pad the timeseries for efficency.
-        # instead, we just skip the places where the timeseries should be padded
+        # instead, we just skip the places where the timeseries should be padded (inspired by the sktime apply_kernel methods)
         for i in range(-padding, end):
             result = bias
             index = i
