@@ -19,7 +19,8 @@ class Rocket(Model):
     # constructor taking rocket panel
     def __init__(self):
         super().__init__(PredictionType.CLASSIFICATION)
-
+        self.timeseries_classification = True
+        self.minirocket = True
         self.multivariate = False
         self.normalise = False
         self.dict = 0
@@ -50,12 +51,20 @@ class Rocket(Model):
         elif isinstance(sk_model, SK_Rocket) or isinstance(sk_model, SK_MiniRocket):
             rocket_model = cls()
 
-            rocket_model.normalise = sk_model.normalise
+            if isinstance(sk_model, SK_Rocket):
+                rocket_model.minirocket = False
+                rocket_model.normalise = sk_model.normalise
+                rocket_model.kernel = sk_model.__dict__[
+                    "kernels"
+                ]  # kernel = tupel ([weights], [lengths], [biases], [dilations], [paddings])
+
+            else:
+                rocket_model.kernel = sk_model.__dict__[
+                    "parameters"
+                ]  # kernel = tupel ([weights], [lengths], [biases], [dilations], [paddings])
             rocket_model.multivariate = False
             rocket_model.dict = sk_model.__dict__
-            rocket_model.kernel = sk_model.__dict__[
-                "kernels"
-            ]  # kernel = tupel ([weights], [lengths], [biases], [dilations], [paddings])
+
             rocket_model.weights = rocket_model.kernel[0]
             rocket_model.lengths = rocket_model.kernel[1]
             rocket_model.biases = rocket_model.kernel[2]
@@ -188,7 +197,8 @@ class Rocket(Model):
                 X = np.transpose(X)
                 timeseries = X[channels]
                 max, ppv = self.applyKernel(timeseries, kernel, bias, dilation, padding)
-                features.append(max)
+                if not self.minirocket:
+                    features.append(max)
                 features.append(ppv)
 
         features = np.asarray(features)
@@ -200,6 +210,7 @@ class Rocket(Model):
         assert self.linear != 0, "Linear model is missing"
         features = self.transform(X)
         results = self.linear.predict_proba(features)
+        return results
         argmax_results = np.argmax(results, axis=1, keepdims=False)
         return np.asarray([self.classes[index] for index in argmax_results])
 
