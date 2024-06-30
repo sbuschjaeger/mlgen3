@@ -2,11 +2,12 @@ import sys
 import numpy as np
 import pandas as pd
 
-sys.path.append("../mlgen3")
+sys.path.append("../mlgen3_rocket/mlgen3")
 import os
 import unittest
 from mlgen3.models.rocket import Rocket
 from sktime.transformations.panel.rocket import Rocket as RocketPanel
+from sktime.transformations.panel.rocket import MiniRocket as MiniRocketPanel
 from sktime.datasets import load_from_tsfile
 from sklearn.linear_model import RidgeClassifierCV, LogisticRegressionCV
 
@@ -126,6 +127,42 @@ class TestRocketClassifier(unittest.TestCase):
 
             assert a == b, ("rocket results are not equal! a: ", a, " b: ", b)
 
+    def testMiniRocketClassification_ridgeregression(self):
+        # initialise dataset
+        (X_train, Y_train, X_test, Y_test) = self.getData()
+
+        # set up sktime model and transformation results for fitting
+        sk_rocket: MiniRocketPanel = MiniRocketPanel(num_kernels=100)
+        sk_rocket.fit(X_train)
+        print(sk_rocket.__dict__)
+        sk_transformation_results = sk_rocket.transform(X_train)
+
+        # set up linear classifier
+        sk_classifier = RidgeClassifierCV(alphas=np.logspace(-3, 3, 10))
+
+        # fit linear model to rocket features
+        sk_classifier.fit(sk_transformation_results, Y_train)
+
+        # create own model and add fitted linear model to rocket
+
+        own_rocket = Rocket.from_sklearn(sk_rocket)
+        own_rocket.addLinear(sk_classifier)
+
+        # generate rocket results for comparison
+        sk_rocket_results = sk_classifier.predict(sk_transformation_results)
+        own_rocket_results = own_rocket.predict_proba(X_train)
+
+        # compare both feature ouputs
+        for i in range(len(sk_rocket_results)):
+            a = sk_rocket_results[i]
+            b = own_rocket_results[i]
+
+            assert a == b, ("rocket results are not equal! a: ", a, " b: ", b)
+
+        print("test passed")
+
 
 if __name__ == "__main__":
+    #test = TestRocketClassifier()
+    #test.testMiniRocketClassification_ridgeregression()
     unittest.main()
