@@ -396,6 +396,9 @@ class Tree(Model):
 		Returns:
 			numpy.array: A (N, 1) matrix where N is the number of data points and 1 is the number of trees in the forest.
 		"""
+		if X.ndim==1:
+			X = X.reshape(1, X.shape[0])
+
 		indices = []
 		for x in X:
 			node = self.head

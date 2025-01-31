@@ -52,7 +52,7 @@ class Linear(Model):
         Returns:
                 numpy.array: A (N, c) prediction matrix where N is the number of data points and c is the number of classes
         """
-        if len(X.shape) == 1:
+        if len(np.shape(X)) == 1:
             X = X.reshape(1, X.shape[0])
 
         # Somewhat stolen and modified from safe_sparse_dot in sklearn extmath.py
