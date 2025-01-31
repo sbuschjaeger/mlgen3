@@ -7,6 +7,7 @@ import numpy as np
 
 class PredictionType(Enum):
     CLASSIFICATION = 1
+    REGRESSION = 2
 
 
 class Model(ABC):

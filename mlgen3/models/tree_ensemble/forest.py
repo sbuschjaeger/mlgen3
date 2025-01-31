@@ -138,3 +138,19 @@ class Forest(Model):
 		model_dict["trees"] = trees
 
 		return model_dict
+	
+	def apply(self, X):
+		"""Applies trees in the forest to X and returns the leaf indices of the trees.
+
+		Args:
+			X (numpy.array): A (N,d) matrix where N is the number of data points and d is the feature dimension. If X has only one dimension then a single example is assumed and X is reshaped via :code:`X = X.reshape(1,X.shape[0])`
+		
+		Returns:
+			numpy.array: A (N, n_trees) matrix where N is the number of data points and n_trees is the number of trees in the forest.
+		"""
+
+		indices = []
+		for tree in self.trees:
+			indices.append(tree.apply(X))
+
+		return np.array(indices)

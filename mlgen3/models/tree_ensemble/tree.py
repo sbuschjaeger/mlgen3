@@ -376,6 +376,38 @@ class Tree(Model):
 			self.populate_path_probs(node.leftChild, curPath + [node.probLeft], allPaths, pathNodes + [node.leftChild.id], pathLabels)
 			self.populate_path_probs(node.rightChild, curPath + [node.probRight], allPaths, pathNodes + [node.rightChild.id], pathLabels)
 
+	def get_leaf_nodes(self):
+		"""Get all leaf nodes from the tree.
+		
+		Args:
+			tree (Tree): The decision tree
+			
+		Returns:
+			list: List of leaf Node objects
+		"""
+		return [node for node in self.nodes if node.prediction is not None]
+	
+	def apply(self, X):
+		"""Applies this tree to the given data and provides the leaf indices of the tree for each example in X.
+
+		Args:
+			X (numpy.array): A (N,d) matrix where N is the number of data points and d is the feature dimension. If X has only one dimension then a single example is assumed and X is reshaped via :code:`X = X.reshape(1,X.shape[0])`
+
+		Returns:
+			numpy.array: A (N, 1) matrix where N is the number of data points and 1 is the number of trees in the forest.
+		"""
+		indices = []
+		for x in X:
+			node = self.head
+
+			while(node.prediction is None):
+				if (x[node.feature] <= node.split): 
+					node = node.leftChild
+				else:
+					node = node.rightChild
+			indices.append(node.id)
+
+		return np.array(indices)
 
 	def quantize(self, quantize_splits = None, quantize_leafs = None):
 		"""Quantizes the splits and predictions in the leaf nodes of the given tree and prunes away unreachable parts of the tree after quantization. 
@@ -478,6 +510,7 @@ class Tree(Model):
 
 		# return model
 		#return allPaths, pathLabels
+
 
 	## SOME STATISTICS FUNCTIONS ##
 
