@@ -9,6 +9,7 @@ import serial
 import time
 
 from mlgen3.implementations.tree.cpp.native import Native
+from mlgen3.implementations.tree.cpp.ifelse import IfElse
 from mlgen3.materializer.cpp.arduino import Arduino
 from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 from mlgen3.models.tree_ensemble import Tree
@@ -111,12 +112,15 @@ if __name__ == "__main__":
     tree = Tree.from_sklearn(sktree)
     #tree.implement()
 
-    native = Native(tree, feature_type="double", label_type="double")
-    native.implement()
+    #native = Native(tree, feature_type="double", label_type="double")
+    #native.implement()
+
+    ifelse = IfElse(tree, feature_type="double", label_type="double")
+    ifelse.implement()
     
-    materializer = LinuxStandalone(native, measure_time=False)
-    native.model.XTest = X_test
-    native.model.YTest = Y_test
+    materializer = LinuxStandalone(ifelse, measure_time=False)
+    ifelse.model.XTest = X_test
+    ifelse.model.YTest = Y_test
 
     materializer.materialize("./testmodels/")
 

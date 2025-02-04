@@ -1,10 +1,12 @@
 from abc import ABC
 from .ensemble import Ensemble
 
+
 class IfElse(Ensemble):
 
     def __init__(self, model, feature_type="int", label_type="int"):
         super().__init__(model,feature_type,label_type)
+        self.__amount_leafs = 0
 
     def implement_member(self, number): #returned
         if number is None:
@@ -29,10 +31,31 @@ class IfElse(Ensemble):
                 }}
             """
         
+        def implement_node_leaf_index(node, indentation = ""):
+            if node.prediction is not None:
+                ret = f"return {self.__amount_leafs};"
+                self.__amount_leafs += 1 #recursion is in preoder, so we can just count up the leafs and numerate them with the current state
+                #after completed recursion, self.__amount_leafs == number of leafs, thats why it is named like that
+                #nodes do not have any information regarding index of the leafs, so we do it like that
+                return ret
+            
+            # This string should not have any whitespaces/newlines at the beginning/end of it, because it would 
+            # mess-up the recursion at bit => strip it
+            return f"""
+                if (pX[{node.feature}] <= {node.split}){{
+                    {implement_node_leaf_index(node.leftChild, indentation+"    ")}
+                }} else {{
+                    {implement_node_leaf_index(node.rightChild, indentation+"    ")}
+                }}
+            """
+        
         if number is None:
             code = f"""
                 std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX){{
                     {implement_node(tree.head)}
+                }}
+                int predict_leaf_index(std::vector<{self.feature_type}> &pX){{
+                    {implement_node_leaf_index(tree.head)}
                 }}
             """
         else:

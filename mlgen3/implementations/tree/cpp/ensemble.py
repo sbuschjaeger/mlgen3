@@ -91,6 +91,7 @@ class Ensemble(Implementation):
                 #pragma once
                 #include <vector>
                 std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);
+                int predict_leaf_nodes(std::vector<{self.feature_type}> &pX);
             """
 
             self.code = f"""
