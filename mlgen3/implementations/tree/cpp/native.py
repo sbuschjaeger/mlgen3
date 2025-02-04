@@ -157,6 +157,7 @@ class Native(Ensemble):
 		if number is None:
 			tree = self.model.trees[0]
 			header = f"std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &x)"
+			header_leaf_index = f"int predict_leaf_index(std::vector<{self.feature_type}> &x)"
 		else:
 			tree = self.model.trees[number]
 			header = f"std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &x)"
@@ -224,8 +225,32 @@ class Native(Ensemble):
 				}}
 				return std::vector<{self.label_type}>(predictions{suffix}[i], predictions{suffix}[i]+{tree.n_classes});
 			"""
+
+			core_loop_leaf_index = f"""
+				{self.int_type} i = 0;
+				while(true) {{
+					if (x[nodes{suffix}[i].feature] <= nodes{suffix}[i].split){{
+						if (nodes{suffix}[i].left_is_leaf) {{
+							i = nodes{suffix}[i].left;
+							break;
+						}} else {{
+							i = nodes{suffix}[i].left;
+						}}
+					}} else {{
+						if (nodes{suffix}[i].right_is_leaf) {{
+							i = nodes{suffix}[i].right;
+							break;
+						}} else {{
+							i = nodes{suffix}[i].right;
+						}}
+					}}
+				}}
+				return i;
+			"""
+
 		else:
 			core_loop = f"return std::vector<{self.label_type}>(predictions{suffix}[0]+{tree.n_classes});"
+			core_loop_leaf_index = f"return 0;" #just one leaf node
 
 		code = f"""
 			{node_struct}
@@ -234,6 +259,10 @@ class Native(Ensemble):
 
 			{header} {{
 				{core_loop}
+			}}
+
+			{header_leaf_index} {{
+				{core_loop_leaf_index}
 			}}
 		"""
 		return header + ";", code
