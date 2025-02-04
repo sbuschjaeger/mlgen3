@@ -63,6 +63,9 @@ class IfElse(Ensemble):
                 std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &pX){{
                     {implement_node(tree.head)}
                 }}
+                int predict_{number}_leaf_index(std::vector<{self.feature_type}> &pX){{
+                    {implement_node_leaf_index(tree.head)}
+                }}
             """
 
 

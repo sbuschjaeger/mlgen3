@@ -1,4 +1,5 @@
 from sklearn import tree
+from sklearn.ensemble import RandomForestClassifier
 import sklearn
 import pandas as pd
 import numpy
@@ -10,9 +11,11 @@ import time
 
 from mlgen3.implementations.tree.cpp.native import Native
 from mlgen3.implementations.tree.cpp.ifelse import IfElse
+from mlgen3.implementations.tree.cpp.ensemble import Ensemble
 from mlgen3.materializer.cpp.arduino import Arduino
 from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 from mlgen3.models.tree_ensemble import Tree
+from mlgen3.models.tree_ensemble import Forest
 
 class TestArduino(unittest.TestCase):
 
@@ -106,21 +109,28 @@ if __name__ == "__main__":
 
     sktree.fit(X_train, Y_train)
 
+    skforest = RandomForestClassifier(n_estimators=2, max_depth=2)
+    skforest.fit(X_train, Y_train)
+
 
 
     #tree = Tree()
-    tree = Tree.from_sklearn(sktree)
+    #tree = Tree.from_sklearn(sktree)
+    forest = Forest.from_sklearn(skforest)
     #tree.implement()
 
     #native = Native(tree, feature_type="double", label_type="double")
     #native.implement()
 
-    ifelse = IfElse(tree, feature_type="double", label_type="double")
-    ifelse.implement()
-    
-    materializer = LinuxStandalone(ifelse, measure_time=False)
-    ifelse.model.XTest = X_test
-    ifelse.model.YTest = Y_test
+    #ifelse = IfElse(tree, feature_type="double", label_type="double")
+    #ifelse.implement()
+
+    ensemble = IfElse(forest, feature_type="double", label_type="double")
+    ensemble.implement()
+
+    materializer = LinuxStandalone(ensemble, measure_time=False)
+    ensemble.model.XTest = X_test
+    ensemble.model.YTest = Y_test
 
     materializer.materialize("./testmodels/")
 

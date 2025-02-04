@@ -161,6 +161,7 @@ class Native(Ensemble):
 		else:
 			tree = self.model.trees[number]
 			header = f"std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &x)"
+			header_leaf_index = f"int predict_{number}_leaf_index(std::vector<{self.feature_type}> &x)"
 
 		if self.reorder_nodes:
 			tree.populate_path_probs()
@@ -265,4 +266,4 @@ class Native(Ensemble):
 				{core_loop_leaf_index}
 			}}
 		"""
-		return header + ";", code
+		return f"{header};\n{header_leaf_index};", code

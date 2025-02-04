@@ -47,6 +47,7 @@ class Ensemble(Implementation):
     def implement(self):
         tree_code = ""
         ensemble_code = ""
+        ensemble_code_leaves = ""
         tree_headers = ""
 
         self.merge_weights()
@@ -54,16 +55,20 @@ class Ensemble(Implementation):
             for n_tree in range(len(self.model.trees)):
                 header, code = self.implement_member(n_tree)
                 tree_code += code
-                tree_headers += header + "\n" 
+                tree_headers += "\t\t" + header + "\n" 
                 
                 # Add tab indentation here already so the code looks somewhat nice
                 if n_tree == 0:
-                    ensemble_code+=f"\tstd::vector<float> result = predict_{n_tree}(pX);\n"
+                    ensemble_code+=f"\tstd::vector<{self.label_type}> result = predict_{n_tree}(pX);\n"
+                    ensemble_code_leaves += f"\tstd::vector<int> result_temp({len(self.model.trees)});\n"
+                    ensemble_code_leaves+=f"\tresult_temp[{n_tree}] = predict_{n_tree}_leaf_index(pX);\n"
                 else:
                     if n_tree == 1:
-                        ensemble_code += "\tstd::vector<float> result_temp;\n"    
+                        ensemble_code += f"\tstd::vector<{self.label_type}> result_temp;\n"  
                     ensemble_code+=f"\tresult_temp = predict_{n_tree}(pX);\n"
                     ensemble_code+=f"\tstd::transform(result.begin(), result.end(), result_temp.begin(),result.begin(), std::plus<{self.label_type}>());\n"
+                    ensemble_code_leaves+=f"\tresult_temp[{n_tree}] = predict_{n_tree}_leaf_index(pX);\n"
+                    ensemble_code_leaves+=f"\tstd::vector<int> result = result_temp;\n"
             
             # For readability, we use f-strings which, unfortunatley, introduces tabs which look messy the end. Hence
             # we use inspect.cleandoc to remove tabs, but preserve the general indentation. Note that since tree_headers
@@ -73,7 +78,9 @@ class Ensemble(Implementation):
             self.header = f"""
                 #pragma once
                 #include <vector>
+                #include <algorithm>
                 std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);
+                std::vector<int> predict_leaf_indices(std::vector<{self.feature_type}> &pX);
                 {tree_headers}
             """ 
 
@@ -84,6 +91,10 @@ class Ensemble(Implementation):
                     {ensemble_code}
                     return result;
                 }}
+                std::vector<int> predict_leaf_indices(std::vector<{self.feature_type}> &pX){{
+                    {ensemble_code_leaves}
+                    return result;
+                }}
             """ 
         else:
             _, code = self.implement_member(None)
@@ -91,7 +102,7 @@ class Ensemble(Implementation):
                 #pragma once
                 #include <vector>
                 std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);
-                int predict_leaf_nodes(std::vector<{self.feature_type}> &pX);
+                std::vector<int> predict_leaf_indices(std::vector<{self.feature_type}> &pX);
             """
 
             self.code = f"""
