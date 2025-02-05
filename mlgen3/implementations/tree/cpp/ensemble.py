@@ -79,30 +79,36 @@ class Ensemble(Implementation):
                 #pragma once
                 #include <vector>
                 #include <algorithm>
-                std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);
-                std::vector<int> predict_leaf_indices(std::vector<{self.feature_type}> &pX);
+                {f"std::vector<int> predict_leaf_indices(std::vector<{self.feature_type}> &pX);" if self.label_type == "leaf_index" else f"std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);" }
                 {tree_headers}
             """ 
+
+            if self.label_type == "leaf_index":
+                predict = f"""
+                    std::vector<int> predict_leaf_indices(std::vector<{self.feature_type}> &pX){{
+                        {ensemble_code_leaves}
+                        return result;
+                    }}
+                """
+            else:
+                predict = f"""
+                    std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX){{
+                        {ensemble_code}
+                        return result;
+                    }}
+                """
 
             self.code = f"""
                 #include "model.h"
                 {tree_code}
-                std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX){{
-                    {ensemble_code}
-                    return result;
-                }}
-                std::vector<int> predict_leaf_indices(std::vector<{self.feature_type}> &pX){{
-                    {ensemble_code_leaves}
-                    return result;
-                }}
+                {predict}
             """ 
         else:
             _, code = self.implement_member(None)
             self.header = f"""
                 #pragma once
                 #include <vector>
-                std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);
-                std::vector<int> predict_leaf_indices(std::vector<{self.feature_type}> &pX);
+                {f"std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);" if self.label_type != "leaf_index" else f"int predict_leaf_index(std::vector<{self.feature_type}> &pX);" }
             """
 
             self.code = f"""

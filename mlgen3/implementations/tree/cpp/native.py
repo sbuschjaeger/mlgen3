@@ -255,15 +255,23 @@ class Native(Ensemble):
 
 		code = f"""
 			{node_struct}
-			{pred_array}
+			{pred_array if self.label_type!="leaf_index" else ""}
 			{nodes_array}
-
-			{header} {{
-				{core_loop}
-			}}
-
+		"""
+		if self.label_type == "leaf_index":
+			code += f"""
 			{header_leaf_index} {{
 				{core_loop_leaf_index}
 			}}
 		"""
-		return f"{header};\n{header_leaf_index};", code
+		else:
+			code += f"""
+			{header} {{
+				{core_loop}
+			}}
+		"""
+
+		if self.label_type == "leaf_index":
+			header = header_leaf_index
+		
+		return f"{header};", code

@@ -11,8 +11,8 @@ class SSF(Implementation):
         super().__init__(model,feature_type,label_type)
 
     def implement(self):
-        # Implement the forest
-        forest = TreeNative(self.model.forest, feature_type=self.feature_type, label_type="float")
+        # Implement forest
+        forest = TreeNative(self.model.forest, feature_type=self.feature_type, label_type="leaf_index")
         forest.implement()
 
         code = forest.code
@@ -25,7 +25,7 @@ class SSF(Implementation):
         header = header.replace("predict(std::vector", "predict_forest(std::vector")
         forest.header = header
 
-        # Implement the logistic regression
+        # Implement logistic regression
         lr = LinearNative(self.model.lr, feature_type="int", label_type=self.label_type)
         lr.implement()
 
@@ -36,6 +36,7 @@ class SSF(Implementation):
 
         header = lr.header
         header = "//header for logistic regression\n" + header
+        header = header.replace("predict(std::vector", "predict_lr(std::vector")
         lr.header = header
 
         # Combine the two implementations
@@ -44,7 +45,11 @@ class SSF(Implementation):
 
         self.code += "//combining Random Forest and Logistic Regression\n"
         self.code += f"std::vector<{lr.label_type}> predict(std::vector<{forest.feature_type}> features) {{\n"
-        self.code += "    std::vector<int> leaf_indices = predict_leaf_indices(features);\n"
+        if len(forest.model.trees) > 1:
+            self.code += "    std::vector<int> leaf_indices = predict_leaf_indices(features);\n"
+        else:
+            self.code += "    std::vector<int> leaf_indices;\n"
+            self.code += "    leaf_indices[0] = predict_leaf_index(features);\n"
         self.code += "    return predict_lr(leaf_indices);\n"
         self.code += f"}}\n"
 

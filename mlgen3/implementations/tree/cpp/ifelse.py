@@ -11,10 +11,16 @@ class IfElse(Ensemble):
     def implement_member(self, number): #returned
         if number is None:
             tree = self.model.trees[0]
-            header = f"std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);"
+            if self.label_type != "leaf_index":
+                header = f"std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);"
+            else:
+                header = f"int predict_leaf_index(std::vector<{self.feature_type}> &pX);"
         else:
             tree = self.model.trees[number]
-            header = f"std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &pX);"
+            if self.label_type != "leaf_index":
+                header = f"std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &pX);"
+            else:
+                header = f"int predict_{number}_leaf_index(std::vector<{self.feature_type}> &pX);"
 
         def implement_node(node, indentation = ""):
             if node.prediction is not None:
@@ -50,23 +56,31 @@ class IfElse(Ensemble):
             """
         
         if number is None:
-            code = f"""
-                std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX){{
-                    {implement_node(tree.head)}
-                }}
-                int predict_leaf_index(std::vector<{self.feature_type}> &pX){{
+            if self.label_type == "leaf_index":
+                code = f"""
+                    int predict_leaf_index(std::vector<{self.feature_type}> &pX){{
                     {implement_node_leaf_index(tree.head)}
                 }}
-            """
+                """
+            else:
+                code = f"""
+                    std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX){{
+                        {implement_node(tree.head)}
+                    }}
+                    """
         else:
-            code = f"""
-                std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &pX){{
-                    {implement_node(tree.head)}
-                }}
-                int predict_{number}_leaf_index(std::vector<{self.feature_type}> &pX){{
-                    {implement_node_leaf_index(tree.head)}
-                }}
-            """
+            if self.label_type == "leaf_index":
+                code = f"""
+                    int predict_{number}_leaf_index(std::vector<{self.feature_type}> &pX){{
+                        {implement_node_leaf_index(tree.head)}
+                    }}
+                """
+            else:
+                code = f"""
+                    std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &pX){{
+                        {implement_node(tree.head)}
+                    }}
+                """
 
 
         return header, code
