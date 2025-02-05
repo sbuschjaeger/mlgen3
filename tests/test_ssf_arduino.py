@@ -1,5 +1,6 @@
 from sklearn import tree
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 import sklearn
 import pandas as pd
 import numpy
@@ -9,13 +10,17 @@ import os
 import serial
 import time
 
-from mlgen3.implementations.tree.cpp.native import Native
+#from mlgen3.implementations.tree.cpp.native import Native
 from mlgen3.implementations.tree.cpp.ifelse import IfElse
 from mlgen3.implementations.tree.cpp.ensemble import Ensemble
+from mlgen3.implementations.linear.cpp.native import Native
 from mlgen3.materializer.cpp.arduino import Arduino
 from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 from mlgen3.models.tree_ensemble import Tree
 from mlgen3.models.tree_ensemble import Forest
+from mlgen3.models.linear import Linear
+from mlgen3.implementations.ssf import SSF as SSFImplementation
+from mlgen3.models.ssf import SSF as SSFModel
 
 class TestArduino(unittest.TestCase):
 
@@ -125,12 +130,25 @@ if __name__ == "__main__":
     #ifelse = IfElse(tree, feature_type="double", label_type="double")
     #ifelse.implement()
 
-    ensemble = IfElse(forest, feature_type="double", label_type="double")
-    ensemble.implement()
+    #ensemble = IfElse(forest, feature_type="double", label_type="double")
+    #ensemble.implement()
 
-    materializer = LinuxStandalone(ensemble, measure_time=False)
-    ensemble.model.XTest = X_test
-    ensemble.model.YTest = Y_test
+    sklog = LogisticRegression()
+    sklog.fit(X_train, Y_train)
+    log_reg = Linear.from_sklearn(sklog)
+    implementation = Native(log_reg, feature_type="int", label_type="double")
+    implementation.implement()
+
+    ssf_model = SSFModel.from_sklearn(skforest, sklog)
+    ssf_implementation = SSFImplementation(ssf_model, feature_type="double", label_type="double")
+    ssf_implementation.implement()
+
+    materializer = LinuxStandalone(ssf_implementation, measure_time=False)
+    #log_reg.model.XTest = X_test
+    #log_reg.model.YTest = Y_test
+
+    ssf_model.XTest = X_test
+    ssf_model.YTest = Y_test
 
     materializer.materialize("./testmodels/")
 
