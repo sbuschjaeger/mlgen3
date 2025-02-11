@@ -48,7 +48,7 @@ class SSF(Implementation):
         if len(forest.model.trees) > 1:
             self.code += "    std::vector<int> leaf_indices = predict_leaf_indices(features);\n"
         else:
-            self.code += "    std::vector<int> leaf_indices;\n"
+            self.code += "    std::vector<int> leaf_indices(1);\n"
             self.code += "    leaf_indices[0] = predict_leaf_index(features);\n"
         self.code += "    return predict_lr(leaf_indices);\n"
         self.code += f"}}\n"

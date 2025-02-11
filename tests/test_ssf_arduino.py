@@ -144,6 +144,7 @@ if __name__ == "__main__":
     ssf_implementation.implement()
 
     materializer = LinuxStandalone(ssf_implementation, measure_time=False)
+    #materializer = Arduino(ssf_implementation, measure_time=False, amount_features=3)
     #log_reg.model.XTest = X_test
     #log_reg.model.YTest = Y_test
 
@@ -152,7 +153,7 @@ if __name__ == "__main__":
 
     materializer.materialize("./testmodels/")
 
-    #materializer.deploy(board = "uno")
+    #materializer.deploy(board = "megaatmega2560")
     
     unittest.main()
 
