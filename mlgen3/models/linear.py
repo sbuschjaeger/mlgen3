@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.special import softmax
 from .model import Model, PredictionType
 
 
@@ -57,14 +58,20 @@ class Linear(Model):
 
         # Somewhat stolen and modified from safe_sparse_dot in sklearn extmath.py
         if X.ndim > 2 or self.coef.ndim > 2:
-            proba = np.dot(X, self.coef)
+            decision = np.dot(X, self.coef) + self.intercept
         else:
-            proba = X @ self.coef
+            decision = X @ self.coef + self.intercept
+        
+        if decision.shape[1] == 1:
+            # Workaround for multi_class="multinomial" and binary outcomes
+            # which requires softmax prediction with only a 1D decision.
+            decision_2d = np.c_[-decision, decision]
+        else:
+            decision_2d = decision
 
-        # proba = []
-        # for x in X:
-        #     proba.append(np.inner(x, self.coef) + self.intercept)
-        return np.array(proba) + self.intercept
+        proba = softmax(decision_2d,axis=1)
+        return proba 
+
 
     def to_dict(self):
         """Stores this linear model as a dictionary which can be loaded with :meth:`Linear.from_dict`.

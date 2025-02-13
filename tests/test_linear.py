@@ -18,6 +18,7 @@ from mlgen3.models.linear import Linear
 class TestLinearClassifiers(unittest.TestCase):
 
     def setUp(self):
+        # TODO ADD BINARY DATASET
         iris = datasets.load_iris()
         self.X = iris.data
         self.y = iris.target

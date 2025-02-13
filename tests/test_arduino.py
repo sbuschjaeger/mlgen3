@@ -42,11 +42,8 @@ class TestArduino(unittest.TestCase):
             if materializer.measure_time:
                 assert "thomasfredericks/Chrono@^1.2.0" in contents
             
-        
-
-
-        #please connect an Arduino Uno for testing. otherwise, please change the board ID to your own board ID in the main function
-        # to look up your board ID, visit https://docs.platformio.org/en/latest/boards/index.html#atmel-avr
+    #please connect an Arduino Uno for testing. otherwise, please change the board ID to your own board ID in the main function
+    # to look up your board ID, visit https://docs.platformio.org/en/latest/boards/index.html#atmel-avr
     def testAccuracy(self):
         assert materializer.implementation.model.XTest is not None and materializer.implementation.model.YTest is not None
         with serial.Serial('/dev/ttyACM0', 9600) as ser: #connects to the Arduino via serial port
@@ -86,9 +83,6 @@ class TestArduino(unittest.TestCase):
                     break
                 
                 i = i+1
-
-
-
 
 if __name__ == "__main__":
 

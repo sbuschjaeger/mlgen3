@@ -96,23 +96,41 @@ class Native(Implementation):
 		tmp_intercept = str(intercept).replace("[", "{").replace("]","}")
 		intercept_array = f"constexpr {internal_type} intercept[{len(intercept)}] = {tmp_intercept};"
 
-		self.code = f"""
-			#include "model.h"
-			{coef_array}
-			{intercept_array}
+		if len(coef) == 1:
+			self.code = f"""
+				#include "model.h"
+				{coef_array}
+				{intercept_array}
 
-			std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &x) {{
-				std::vector<{self.label_type}> pred({len(coef)}, 0);
-				for (unsigned int j = 0; j < {len(coef)}; ++j) {{
-					{internal_type} sum = intercept[j]; 
-					for (unsigned int i = 0; i < {len(coef[0])}; ++i) {{
-						sum += coef[j][i] * x[i];
-					}}
-					pred[j] += sum; 
+				std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &x) {{
+					std::vector<{self.label_type}> pred(2);
+						{internal_type} sum = intercept[0]; 
+						for (unsigned int i = 0; i < {len(coef[0])}; ++i) {{
+							sum += coef[0][i] * x[i];
+						}}
+						pred[0] = -sum; 
+						pred[1] = sum; 
+					return pred;
 				}}
-				return pred;
-			}}
-		""".strip()
+			""".strip()
+		else:
+			self.code = f"""
+				#include "model.h"
+				{coef_array}
+				{intercept_array}
+
+				std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &x) {{
+					std::vector<{self.label_type}> pred({len(coef)});
+					for (unsigned int j = 0; j < {len(coef)}; ++j) {{
+						{internal_type} sum = intercept[j]; 
+						for (unsigned int i = 0; i < {len(coef[0])}; ++i) {{
+							sum += coef[j][i] * x[i];
+						}}
+						pred[j] = sum; 
+					}}
+					return pred;
+				}}
+			""".strip()
 
 		self.header = f"""
 			#pragma once

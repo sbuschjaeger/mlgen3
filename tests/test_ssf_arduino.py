@@ -19,7 +19,7 @@ from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 from mlgen3.models.tree_ensemble import Tree
 from mlgen3.models.tree_ensemble import Forest
 from mlgen3.models.linear import Linear
-from mlgen3.implementations.ssf import SSF as SSFImplementation
+from mlgen3.implementations.ssf.cpp.ssf import SSF as SSFImplementation
 from mlgen3.models.ssf import SSF as SSFModel
 
 class TestArduino(unittest.TestCase):

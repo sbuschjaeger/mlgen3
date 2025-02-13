@@ -21,13 +21,23 @@ class SSF(Model):
         model = SSF()
         model.forest = Forest.from_sklearn(forest_model)
         model.lr = Linear.from_sklearn(lr_model)
+        model.node_mapping = [
+            {n.id: i for i, n in enumerate(e.get_leaf_nodes())} 
+            for e in model.forest.trees
+        ]
+
         return model
     
     def predict_proba(self, X):
-        # Generate leaf indices for each sample
-        X_leaves = np.array([self.forest.apply(_test) for _test in X])
-        X_leaves = np.squeeze(X_leaves, axis=-1)
+        X_one_hot = []
+        for i, (e, node_map) in enumerate(zip(self.forest.trees, self.node_mapping)):
+            adjusted_idx = [node_map[idx] for idx in e.apply(X)] 
+
+            one_hot_leaves = np.zeros( (X.shape[0], len(node_map)) )
+            one_hot_leaves[np.arange(len(X)),adjusted_idx] = 1 
+            X_one_hot.append(one_hot_leaves)
+
+        X_one_hot = np.concatenate(X_one_hot,axis=1)
+
         # Apply logistic regression to leaf indices
-        prediction = self.lr.predict_proba(X_leaves)
-        prediction = np.squeeze(prediction, axis=-1)
-        return 1.0/(1.0 + np.exp(-prediction)) #there is no activation function in the Linear model, so we apply sigmoid here
+        return self.lr.predict_proba(X_one_hot)

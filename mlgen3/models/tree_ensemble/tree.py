@@ -337,7 +337,8 @@ class Tree(Model):
 		Returns:
 			dict: The dictionary representation of this tree.
 		"""
-		model_dict = super().to_dict()
+		#model_dict = super().to_dict()
+		model_dict = {}
 		model_dict["model"] = self._to_dict(self.head)
 		
 		return model_dict

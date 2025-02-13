@@ -50,7 +50,7 @@ class Model(ABC):
 
         if self.prediction_type == PredictionType.CLASSIFICATION:
             prediction = self.predict_proba(X)
-            print(np.shape(prediction))
+            
             accuracy = np.mean(prediction.argmax(axis=1) == y)
 
             # Compute some value
