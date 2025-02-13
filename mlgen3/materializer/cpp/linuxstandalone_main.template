@@ -71,12 +71,12 @@ auto benchmark(std::vector<std::vector<FEATURE_TYPE>> &X, std::vector<LABEL_TYPE
 
 			output=predict(X[i]);
 
-			if (k == 0 && i < 5) {
+			/* if (k == 0 && i < 5) {
 				for (unsigned int j = 0; j < output.size(); ++j) {
 					std::cout << output[j] << " ";
 				}
 				std::cout << std::endl;
-			}
+			} */
 
             OUTPUT_TYPE max = output[0];
             unsigned int argmax = 0;
@@ -97,7 +97,7 @@ auto benchmark(std::vector<std::vector<FEATURE_TYPE>> &X, std::vector<LABEL_TYPE
     // auto end = std::chrono::high_resolution_clock::now();   
     // auto runtime = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count()) / (X.size() * repeat);
     // float accuracy = static_cast<float>(matches) / X.size() * 100.f;
-    {measure_results};
+    {measure_results}
 }
 
 int main (int argc, char *argv[]) {

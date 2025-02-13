@@ -62,18 +62,18 @@ class LinuxStandalone(Materializer):
 
     def generate_tests(self):
         main_str = ""
-        if self.implementation.model.timeseries_classification:
-            main_str = (
+        # if self.implementation.model.timeseries_classification:
+        #     main_str = (
+        #     files("mlgen3.materializer.cpp")
+        #     .joinpath("linuxstandalone_main_ts.template")
+        #     .read_text()
+        # )
+        # else:
+        main_str = (
             files("mlgen3.materializer.cpp")
-            .joinpath("linuxstandalone_main_ts.template")
+            .joinpath("linuxstandalone_main.template")
             .read_text()
         )
-        else:
-            main_str = (
-                files("mlgen3.materializer.cpp")
-                .joinpath("linuxstandalone_main.template")
-                .read_text()
-            )
 
         start_measurement = ""
         end_measurement = ""
@@ -119,8 +119,8 @@ class LinuxStandalone(Materializer):
             typedef {self.implementation.feature_type} FEATURE_TYPE;
             """
         label_position = ""
-        if self.implementation.model.timeseries_classification:
-            label_position = f"unsigned int label_pos = {len(self.implementation.model.XTest.to_numpy()[0])};"
+        # if self.implementation.model.timeseries_classification:
+        #     label_position = f"unsigned int label_pos = {len(self.implementation.model.XTest.to_numpy()[0])};"
 
         main_str = (
             main_str.replace("{start_measurement}", start_measurement)
@@ -155,36 +155,30 @@ class LinuxStandalone(Materializer):
                 f.write(self.beautify(self.generate_tests()))
 
         # TODO This is a bit weird, refactor it?
-
         if type(self.implementation.model.XTest) == pd.core.frame.DataFrame:
             XTest = self.implementation.model.XTest.to_numpy()
-        
+        else:
+            XTest = self.implementation.model.XTest
+            
         #print("Xtest shape: ", np.shape(XTest))
-
         YTest = self.implementation.model.YTest
 
-        YTest_Series = [pd.Series([y]) for y in YTest]
-
-        if self.implementation.model.timeseries_classification:
-
-            dfTest = pd.DataFrame(XTest, columns=["f{}".format(i) for i in range(len(XTest[0]))])
-
-            write_dataframe_to_tsfile(pd.DataFrame(dfTest),os.path.join(self.path, "testing.ts"), class_label=[], class_value_list=YTest, equal_length=True)
-
-
-            
-        else:
-            XTest = XTest.astype(np.float32) #bei zeitreihenanalyse sind das zeitreihen. somit probleme mit numpy
-            dfTest = pd.concat(
-                [
-                    pd.DataFrame(
-                        XTest, columns=["f{}".format(i) for i in range(len(XTest[0]))]
-                    ),
-                    pd.DataFrame(YTest, columns=["label"]),
-                ],
-                axis=1,
-            )
-            dfTest.to_csv(os.path.join(self.path, "testing.csv"), header=True, index=False)
+        # YTest_Series = [pd.Series([y]) for y in YTest]
+        # if self.implementation.model.timeseries_classification:
+        #     dfTest = pd.DataFrame(XTest, columns=["f{}".format(i) for i in range(len(XTest[0]))])
+        #     write_dataframe_to_tsfile(pd.DataFrame(dfTest),os.path.join(self.path, "testing.ts"), class_label=[], class_value_list=YTest, equal_length=True)
+        # else:
+        XTest = XTest.astype(np.float32) #bei zeitreihenanalyse sind das zeitreihen. somit probleme mit numpy
+        dfTest = pd.concat(
+            [
+                pd.DataFrame(
+                    XTest, columns=["f{}".format(i) for i in range(len(XTest[0]))]
+                ),
+                pd.DataFrame(YTest, columns=["label"]),
+            ],
+            axis=1,
+        )
+        dfTest.to_csv(os.path.join(self.path, "testing.csv"), header=True, index=False)
 
     def run(self, verbose=False):
         make_res = subprocess.run(
