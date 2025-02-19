@@ -1,5 +1,7 @@
 import heapq
 
+import numpy as np
+
 from .ensemble import Ensemble
 
 class Native(Ensemble):
@@ -154,14 +156,13 @@ class Native(Ensemble):
 		return inner_nodes, leaf_nodes
 
 	def implement_member(self, number): 
+		np.set_printoptions(legacy="1.25", precision=None, threshold=None)
 		if number is None:
 			tree = self.model.trees[0]
 			header = f"std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &x)"
-			header_leaf_index = f"int predict_leaf_index(std::vector<{self.feature_type}> &x)"
 		else:
 			tree = self.model.trees[number]
 			header = f"std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &x)"
-			header_leaf_index = f"int predict_{number}_leaf_index(std::vector<{self.feature_type}> &x)"
 
 		if self.reorder_nodes:
 			tree.populate_path_probs()
@@ -226,52 +227,18 @@ class Native(Ensemble):
 				}}
 				return std::vector<{self.label_type}>(predictions{suffix}[i], predictions{suffix}[i]+{tree.n_classes});
 			"""
-
-			core_loop_leaf_index = f"""
-				{self.int_type} i = 0;
-				while(true) {{
-					if (x[nodes{suffix}[i].feature] <= nodes{suffix}[i].split){{
-						if (nodes{suffix}[i].left_is_leaf) {{
-							i = nodes{suffix}[i].left;
-							break;
-						}} else {{
-							i = nodes{suffix}[i].left;
-						}}
-					}} else {{
-						if (nodes{suffix}[i].right_is_leaf) {{
-							i = nodes{suffix}[i].right;
-							break;
-						}} else {{
-							i = nodes{suffix}[i].right;
-						}}
-					}}
-				}}
-				return i;
-			"""
-
 		else:
 			core_loop = f"return std::vector<{self.label_type}>(predictions{suffix}[0]+{tree.n_classes});"
-			core_loop_leaf_index = f"return 0;" #just one leaf node
 
 		code = f"""
 			{node_struct}
-			{pred_array if self.label_type!="leaf_index" else ""}
+			{pred_array}
 			{nodes_array}
 		"""
-		if self.label_type == "leaf_index":
-			code += f"""
-			{header_leaf_index} {{
-				{core_loop_leaf_index}
-			}}
-		"""
-		else:
-			code += f"""
-			{header} {{
-				{core_loop}
-			}}
-		"""
 
-		if self.label_type == "leaf_index":
-			header = header_leaf_index
-		
+		code += f"""
+		{header} {{
+			{core_loop}
+		}}
+		"""
 		return f"{header};", code

@@ -74,7 +74,6 @@ class Ensemble(Implementation):
                 #pragma once
                 #include <vector>
                 #include <algorithm>
-                f"std::vector<int> predict_leaf_indices(std::vector<{self.feature_type}> &pX);"
                 {tree_headers}
             """ 
 
@@ -95,7 +94,7 @@ class Ensemble(Implementation):
             self.header = f"""
                 #pragma once
                 #include <vector>
-                std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);"
+                std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &pX);
             """
 
             self.code = f"""

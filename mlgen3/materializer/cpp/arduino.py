@@ -94,15 +94,18 @@ class Arduino(Materializer):
     # 'board' is a string that specifies the board that is used. It is the ID of the board. For example, the ID of the Arduino Uno is 'uno'.
     # For checking the ID of your board, visit https://docs.platformio.org/en/latest/boards/index.html and select your device.
     # Keep in mind to use boards based on the atmelavr platform. Otherwise the ArduinoSTL is not supported.
-    def pioini_generator(self, board):
-        main_str = f"[env:{board}] \n platform = atmelavr \n board = {board} \n framework = arduino \n lib_deps = mike-matera/ArduinoSTL@^1.3.3"
+    def pioini_generator(self, board, mcu=None):
+        if mcu is not None and len (mcu) > 0:
+            main_str = f"[env:{board}] \n platform = atmelavr \n board = {board} \n board_build.mcu = {mcu} \n framework = arduino \n lib_deps = mike-matera/ArduinoSTL@^1.3.3"
+        else:
+            main_str = f"[env:{board}] \n platform = atmelavr \n board = {board} \n framework = arduino \n lib_deps = mike-matera/ArduinoSTL@^1.3.3"
 
         if self.measure_time:
             main_str += "\n     thomasfredericks/Chrono@^1.2.0"
         return main_str
 
     # generates platformio project and deploys it to a board
-    def deploy(self, board = None):
+    def deploy(self, board = None, mcu = None):
         #First we generate a new platformio project. To update the libraries, we just extend the platformio.ini file
         #We didn't do that in the materialize method, because we need to know the ID of the connected board. Otherwise, we would have to connect the board before materializing the code
         assert board is not None, "Please specify the board ID you want to deploy to. If you don't know your own board ID, please visit https://docs.platformio.org/en/latest/boards/index.html#atmel-avr and select your device."
@@ -113,7 +116,7 @@ class Arduino(Materializer):
         time.sleep(5)
         
         with open(os.path.join(path, "platformio.ini"), 'w') as f: #extends platformio.ini
-            f.write(self.pioini_generator(board))
+            f.write(self.pioini_generator(board, mcu))
         print("build and upload PlatformIO project")
         process = subprocess.run(f"pio run -d {path} -t upload; pio device monitor", shell=True) #builds project and uploads it to the board
 
