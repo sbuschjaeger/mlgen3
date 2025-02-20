@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ArduinoSTL.h>
 #include <Chrono.h>
+#include <string>
 
 //IMPORTANT: Due to support limitations of the library "ArduinoSTL", the code is not compatible with other platforms than AtmelAVR
 //please visit https://docs.platformio.org/en/latest/boards/index.html, to check if your device is supported.
@@ -88,6 +89,24 @@ void setup() {
 }
 
 void loop() {
+    unsigned int n_correct = 0;
+    start = chrono.elapsed();
+    for (unsigned int i = 0; i < X.size(); ++i) {
+      result = predict(X[i]);
+      if (vectorArgmax(result) == Y[i]) {
+        n_correct += 1;
+      }
+    }
+    end = chrono.elapsed();
+    auto diff = end-start;
+    auto accuray = n_correct / X.size() * 100.0f;
+    auto runtime_per_elem = diff / X.size();
+
+    Serial.print(accuray);
+    Serial.print(runtime_per_elem);
+    Serial.print("");
+
+    /*
     incomingByte = "";
     data = read_uart();
 	  if(data.size()>0){
@@ -101,4 +120,5 @@ void loop() {
       Serial.println(end-start);
       data.clear();
 	  }
+    */
 }

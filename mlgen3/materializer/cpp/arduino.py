@@ -56,8 +56,6 @@ class Arduino(Materializer):
         with open(os.path.join(self.path+"src", "main.cpp"), 'w') as f: #creates main.cpp
             f.write(self.beautify(self.generate_maincpp()))
 
-
-
     #main.cpp is the file, that is executed on the Arduino board. It reads the input from the serial port, calls the predict function and writes the output to the serial port
     def generate_maincpp(self):
         main_str = ""
@@ -73,6 +71,16 @@ class Arduino(Materializer):
         else:
             main_str = files('mlgen3.materializer.cpp').joinpath('arduino_main.template').read_text()
 
+        YTest = self.implementation.model.YTest
+        XTest = self.implementation.model.XTest.astype(np.float32) 
+
+        x_data = ""
+        y_data = ""
+        for x,y in zip(XTest, YTest):
+            x_data += "{" + ",".join([str(xi) for xi in x]) + "},"
+            y_data += str(y) + ","
+        x_data = x_data[:-1]
+        y_data = y_data[:-1]
 
         # TODO this is currently hard-coded. Remove LABEL_TYPE 
         typedefinitions = f"""
@@ -81,10 +89,11 @@ class Arduino(Materializer):
             typedef {self.implementation.label_type} LABEL_TYPE;
             typedef {self.implementation.feature_type} FEATURE_TYPE;
             const int AMOUNT_FEATURES = {self.amount_features};
-            """
-        
+            std::vector<std::vector<FEATURE_TYPE>> X = {{{x_data}}};
+            std::vector<unsigned int> Y = {{{y_data}}};
+        """
+
         main_str = main_str.replace("{typedefinitions}", typedefinitions)
-        
 
         return main_str
 
@@ -94,21 +103,21 @@ class Arduino(Materializer):
     # 'board' is a string that specifies the board that is used. It is the ID of the board. For example, the ID of the Arduino Uno is 'uno'.
     # For checking the ID of your board, visit https://docs.platformio.org/en/latest/boards/index.html and select your device.
     # Keep in mind to use boards based on the atmelavr platform. Otherwise the ArduinoSTL is not supported.
-    def pioini_generator(self, board, mcu=None):
+    def pioini_generator(self, board, platform = "atmelavr", mcu=None):
         if mcu is not None and len (mcu) > 0:
-            main_str = f"[env:{board}] \n platform = atmelavr \n board = {board} \n board_build.mcu = {mcu} \n framework = arduino \n lib_deps = mike-matera/ArduinoSTL@^1.3.3"
+            main_str = f"[env:{board}] \n platform = {platform} \n board = {board} \n board_build.mcu = {mcu} \n framework = arduino \n lib_deps = mike-matera/ArduinoSTL@^1.3.3"
         else:
-            main_str = f"[env:{board}] \n platform = atmelavr \n board = {board} \n framework = arduino \n lib_deps = mike-matera/ArduinoSTL@^1.3.3"
+            main_str = f"[env:{board}] \n platform = {platform} \n board = {board} \n framework = arduino \n lib_deps = mike-matera/ArduinoSTL@^1.3.3"
 
         if self.measure_time:
             main_str += "\n     thomasfredericks/Chrono@^1.2.0"
         return main_str
 
     # generates platformio project and deploys it to a board
-    def deploy(self, board = None, mcu = None):
+    def deploy(self, board, platform = "atmelavr", mcu = None):
         #First we generate a new platformio project. To update the libraries, we just extend the platformio.ini file
         #We didn't do that in the materialize method, because we need to know the ID of the connected board. Otherwise, we would have to connect the board before materializing the code
-        assert board is not None, "Please specify the board ID you want to deploy to. If you don't know your own board ID, please visit https://docs.platformio.org/en/latest/boards/index.html#atmel-avr and select your device."
+        #assert board is not None, "Please specify the board ID you want to deploy to. If you don't know your own board ID, please visit https://docs.platformio.org/en/latest/boards/index.html#atmel-avr and select your device."
 
         path = os.path.abspath(self.path)
         subprocess.run(f"pio init --board {board} --project-dir {path}", shell=True) #creates platformio project
@@ -116,9 +125,12 @@ class Arduino(Materializer):
         time.sleep(5)
         
         with open(os.path.join(path, "platformio.ini"), 'w') as f: #extends platformio.ini
-            f.write(self.pioini_generator(board, mcu))
+            f.write(self.pioini_generator(board, platform, mcu))
         print("build and upload PlatformIO project")
         process = subprocess.run(f"pio run -d {path} -t upload; pio device monitor", shell=True) #builds project and uploads it to the board
+        #wdw
+        #print(process)
+
 
     def run(self): #after deployment code already runs. so deploying and running the code cannot be split
         pass
