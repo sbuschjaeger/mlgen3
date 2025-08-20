@@ -64,7 +64,8 @@ def get_step(l, lid, input_packed = False, output_packed = True, **kwargs):
 		if isinstance(l.threshold, (list, np.ndarray)):
 			# TODO round to next integer and use the int type 
 
-			tmp_threshold = str(list(l.threshold)).replace("[", "{").replace("]","}")
+			# Fix: Use tolist() to convert NumPy arrays to native Python types
+			tmp_threshold = str(l.threshold.tolist()).replace("[", "{").replace("]","}")
 			threshold_array = f"constexpr float layer_{lid}_threshold[{len(l.threshold)}] = {tmp_threshold};"
 			alloc += threshold_array + "\n"
 
@@ -162,8 +163,13 @@ def get_linear(l, lid, input_packed = False, output_packed = True, **kwargs):
 		else:
 			alloc += ";\n"
 
-		tmp_weight = ",".join([str(list(c1)).replace("[", "{").replace("]","}") for c1 in l.weight])
-		weight_array = f"constexpr {output_type} layer_{lid}_weight[{len(l.weight)}][{len(l.weight[0])}] = {{{tmp_weight}}};"
+		# tmp_weight = ",".join([str(list(c1)).replace("[", "{").replace("]","}") for c1 in l.weight])
+		# weight_array = f"constexpr {output_type} layer_{lid}_weight[{len(l.weight)}][{len(l.weight[0])}] = {{{tmp_weight}}};"
+		
+		# Fix: Use tolist() to convert NumPy arrays to native Python types
+		weight_list = l.weight.tolist()
+		tmp_weight = str(weight_list).replace("[", "{").replace("]","}") 
+		weight_array = f"constexpr {output_type} layer_{lid}_weight[{len(l.weight)}][{len(l.weight[0])}] = {tmp_weight};"
 
 		tmp_bias = str(l.bias.tolist()).replace("[", "{").replace("]","}")
 		bias_array = f"constexpr {output_type} layer_{lid}_bias[{len(l.bias)}] = {tmp_bias};"
@@ -209,14 +215,22 @@ def get_linear(l, lid, input_packed = False, output_packed = True, **kwargs):
 				tmp.append(hex(int(b, 2)))
 			weight_hex.append(tmp)
 		weight_hex = np.array(weight_hex)
-		# weight_binary = [
-		# 	[
-		# 		hex(int(b, 2)) for b in textwrap.wrap(''.join([str(w) for w in weight_binary[i]]),self.binary_word_size)
-		# 	] for i in range(weight_binary.shape[0])
-		# ]
+
+		# # weight_binary = [
+		# # 	[
+		# # 		hex(int(b, 2)) for b in textwrap.wrap(''.join([str(w) for w in weight_binary[i]]),self.binary_word_size)
+		# # 	] for i in range(weight_binary.shape[0])
+		# # ]
 		
-		weight_hex_str = ",".join([str(list(c1)).replace("[", "{").replace("]","}").replace("'","") for c1 in weight_hex])
-		#weight_hex_str = str(list(weight_hex)).replace("[", "{").replace("]","}").replace("'","")
+		# weight_hex_str = ",".join([str(list(c1)).replace("[", "{").replace("]","}").replace("'","") for c1 in weight_hex])
+		# #weight_hex_str = str(list(weight_hex)).replace("[", "{").replace("]","}").replace("'","")
+
+		# Fix: Convert hex values to native Python types before string conversion
+		weight_hex_list = []
+		for row in weight_hex:
+			weight_hex_list.append([hex_val for hex_val in row.tolist()])
+		
+		weight_hex_str = ",".join([str(row).replace("[", "{").replace("]","}").replace("'","") for row in weight_hex_list])
 		weight_array = f"constexpr {uint_type} layer_{lid}_weight[{weight_hex.shape[0]}][{weight_hex.shape[1]}] = {{{weight_hex_str}}};"
 
 		tmp_bias = str(l.bias.tolist()).replace("[", "{").replace("]","}")

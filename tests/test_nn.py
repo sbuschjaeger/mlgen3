@@ -159,22 +159,33 @@ class TestNeuralNetwork(unittest.TestCase):
         ]
 
         net = NeuralNet.from_layers(layers)
+        print("Net succesfully initialized. Input:")
         print(net.predict_proba(self.X[0,:]))
         print(net.predict_proba(self.X[1,:]))
         print(net.predict_proba(self.X[2,:]))
         print(net.predict_proba(self.X[3,:]))
         print(net.predict_proba(self.X[4,:]))
+
         scores = net.score(self.X,self.y)
         acc = scores["Accuracy"]
 
         implementation = BNN(net, feature_type="float", label_type="float")
         implementation.implement()
+
+        print("Net succesfully implemented.")
         
         materializer = LinuxStandalone(implementation, measure_accuracy=True, measure_time=True, measure_perf=False)
+        print("Materializer initialized.")
         materializer.materialize(os.path.join(tempfile.gettempdir(), "mlgen3", "TestMLPBNN"))
-        materializer.deploy() 
-        output = materializer.run(True) 
+        print("Materializer materialized.")
+        materializer.deploy()
+        print("Materializer deployed.")
+
+        print("Running materializer...")
+        output = materializer.run(True)
+        print("Materializer run completed.") 
         self.assertAlmostEqual(float(output["Accuracy"]), acc*100.0, places=3)
+        print("Test completed successfully.")
 
     # TODO THIS DOES NOT FULLY WORK AT THE MOMENT!
     @unittest.skip

@@ -207,6 +207,8 @@ class LinuxStandalone(Materializer):
                 l = cur_line.split(":")
                 metrics[l[0]] = l[1].split(" ")[1]
 
+        print(metrics)
+
         return metrics
 
     def clean(self):

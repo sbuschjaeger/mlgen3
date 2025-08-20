@@ -27,7 +27,7 @@ def download(url, filename, tmpdir = None):
         tmpdir = os.path.join(tempfile.gettempdir(), "data")
 
     if not os.path.exists(tmpdir):
-        os.mkdir(tmpdir)
+        os.makedirs(tmpdir, exist_ok=True)  # Use makedirs instead of mkdir to create parent directories
 
     if not os.path.exists(os.path.join(tmpdir,filename)):
         print("{} not found. Downloading.".format(os.path.join(tmpdir,filename)))
@@ -478,4 +478,3 @@ def get_dataset(dataset, tmpdir = None):
         # return None, None
 
     return X, Y
-        
