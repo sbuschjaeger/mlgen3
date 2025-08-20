@@ -9,3 +9,4 @@ build
 
 #
 README_gen.md
+generated_code/*

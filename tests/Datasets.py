@@ -225,10 +225,10 @@ def get_dataset(dataset, tmpdir = None):
             else:
                 out_path = os.path.join(tmpdir, "data", "mnist")
 
-            train_path = download("http://yann.lecun.com/exdb/mnist/train-images-idx3-ubyte.gz", "train-images-idx3-ubyte.gz", out_path)
-            train_path = download("http://yann.lecun.com/exdb/mnist/train-labels-idx1-ubyte.gz", "train-labels-idx1-ubyte.gz", out_path)
-            test_path = download("http://yann.lecun.com/exdb/mnist/t10k-images-idx3-ubyte.gz", "t10k-images-idx3-ubyte.gz", out_path)
-            test_path = download("http://yann.lecun.com/exdb/mnist/t10k-labels-idx1-ubyte.gz", "t10k-labels-idx1-ubyte.gz", out_path)
+            train_path = download("http://ossci-datasets.s3.amazonaws.com/mnist/train-images-idx3-ubyte.gz", "train-images-idx3-ubyte.gz", out_path)
+            train_path = download("http://ossci-datasets.s3.amazonaws.com/mnist/train-labels-idx1-ubyte.gz", "train-labels-idx1-ubyte.gz", out_path)
+            test_path = download("http://ossci-datasets.s3.amazonaws.com/mnist/t10k-images-idx3-ubyte.gz", "t10k-images-idx3-ubyte.gz", out_path)
+            test_path = download("http://ossci-datasets.s3.amazonaws.com/mnist/t10k-labels-idx1-ubyte.gz", "t10k-labels-idx1-ubyte.gz", out_path)
 
         X_train, y_train = load_mnist(out_path, kind='train')
         X_test, y_test = load_mnist(out_path, kind='t10k')

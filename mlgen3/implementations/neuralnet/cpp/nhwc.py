@@ -21,7 +21,7 @@ class NHWC(Implementation):
 			# TODO This only works for 1d inputs at the moment. 
 			alloc += f"static {self.internal_type} layer_{lid}[{l.output_shape}]"
 			if self.align is not None and self.align > 0:
-				alloc += "__attribute__((aligned({self.align})));\n"
+				alloc += f"__attribute__((aligned({self.align})));\n"
 			else:
 				alloc += ";\n"
 
@@ -53,12 +53,19 @@ class NHWC(Implementation):
 					}}
 				"""
 			elif isinstance(l, Linear):
-				tmp_weight = ",".join([str(list(c1)).replace("[", "{").replace("]","}") for c1 in l.weight])
+				# Convert NumPy arrays to Python lists and format as C++ arrays
+				weight_list = l.weight.tolist()
+				weight_str = []
+				for row in weight_list:
+					row_str = "{" + ", ".join(str(val) for val in row) + "}"
+					weight_str.append(row_str)
+				tmp_weight = ", ".join(weight_str)
 				weight_array = f"constexpr {self.internal_type} layer_{lid}_weight[{len(l.weight)}][{len(l.weight[0])}] = {{{tmp_weight}}};"
 
-				tmp_bias = str(l.bias.tolist()).replace("[", "{").replace("]","}")
-				bias_array = f"constexpr {self.internal_type} layer_{lid}_bias[{len(l.bias)}] = {tmp_bias};"
-				# TODO add alinged
+				bias_str = "{" + ", ".join(str(val) for val in l.bias.tolist()) + "}"
+				bias_array = f"constexpr {self.internal_type} layer_{lid}_bias[{len(l.bias)}] = {bias_str};"
+				
+				# TODO add aligned
 				alloc += weight_array + "\n"
 				alloc += bias_array + "\n"
 
@@ -73,11 +80,12 @@ class NHWC(Implementation):
 					}}
 				"""
 			elif isinstance(l, BatchNorm):
-				tmp_scale = str(l.scale.tolist()).replace("[", "{").replace("]","}")
-				scale_array = f"constexpr {self.internal_type} layer_{lid}_scale[{len(l.scale)}] = {tmp_scale};"
+				# Convert NumPy arrays to Python lists for C++ compatibility
+				scale_str = "{" + ", ".join(str(val) for val in l.scale.tolist()) + "}"
+				scale_array = f"constexpr {self.internal_type} layer_{lid}_scale[{len(l.scale)}] = {scale_str};"
 				
-				tmp_bias = str(l.bias.tolist()).replace("[", "{").replace("]","}")
-				bias_array = f"constexpr {self.internal_type} layer_{lid}_bias[{len(l.bias)}] = {tmp_bias};"
+				bias_str = "{" + ", ".join(str(val) for val in l.bias.tolist()) + "}"
+				bias_array = f"constexpr {self.internal_type} layer_{lid}_bias[{len(l.bias)}] = {bias_str};"
 
 				alloc += scale_array + "\n"
 				alloc += bias_array + "\n"
@@ -94,8 +102,8 @@ class NHWC(Implementation):
 					comp = ">"
 
 				if isinstance(l.threshold, (list, np.ndarray)):
-					tmp_threshold = str(l.threshold.tolist()).replace("[", "{").replace("]","}")
-					threshold_array = f"constexpr {self.internal_type} layer_{lid}_threshold[{len(l.threshold)}] = {tmp_threshold};"
+					threshold_str = "{" + ", ".join(str(val) for val in l.threshold.tolist()) + "}"
+					threshold_array = f"constexpr {self.internal_type} layer_{lid}_threshold[{len(l.threshold)}] = {threshold_str};"
 					alloc += threshold_array + "\n"
 
 					threshold = f"layer_{lid}_threshold[i]"
