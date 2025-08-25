@@ -154,21 +154,23 @@ class LinuxStandalone(Materializer):
             with open(os.path.join(self.path, "main.cpp"), "w") as f:
                 f.write(self.beautify(self.generate_tests()))
 
-        # TODO This is a bit weird, refactor it?
+        # Handle different data formats
         if type(self.implementation.model.XTest) == pd.core.frame.DataFrame:
             XTest = self.implementation.model.XTest.to_numpy()
         else:
             XTest = self.implementation.model.XTest
+        
+        # Check if we have a multi-dimensional input (like images) and flatten it
+        if len(XTest.shape) > 2:
+            print(f"Flattening input data from shape {XTest.shape}")
+            # For CNN inputs - reshape from (batch_size, channels, height, width) to (batch_size, channels*height*width)
+            XTest = XTest.reshape(XTest.shape[0], -1)
+            print(f"New shape: {XTest.shape}")
             
-        #print("Xtest shape: ", np.shape(XTest))
         YTest = self.implementation.model.YTest
 
-        # YTest_Series = [pd.Series([y]) for y in YTest]
-        # if self.implementation.model.timeseries_classification:
-        #     dfTest = pd.DataFrame(XTest, columns=["f{}".format(i) for i in range(len(XTest[0]))])
-        #     write_dataframe_to_tsfile(pd.DataFrame(dfTest),os.path.join(self.path, "testing.ts"), class_label=[], class_value_list=YTest, equal_length=True)
-        # else:
-        XTest = XTest.astype(np.float32) #bei zeitreihenanalyse sind das zeitreihen. somit probleme mit numpy
+        # Create CSV file with flattened data
+        XTest = XTest.astype(np.float32)
         dfTest = pd.concat(
             [
                 pd.DataFrame(

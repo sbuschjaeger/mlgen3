@@ -15,7 +15,6 @@ from Datasets import get_dataset
 
 # Load Fashion-MNIST dataset
 X_train, y_train, X_test, y_test = get_dataset("fashion")
-
 # Reshape data for CNN (adding channel dimension)
 X_train = X_train.reshape(-1, 1, 28, 28).astype('float32') / 255.0
 X_test = X_test.reshape(-1, 1, 28, 28).astype('float32') / 255.0
@@ -89,69 +88,99 @@ with torch.no_grad():
     
     print(f"PyTorch Model Accuracy: {100 * correct / total:.2f}%")
 
-print("Converting to MLGen3 model...")
+print("Converting to MLGen3 model with full CNN support...")
 
-# Flatten test data for MLGen3 compatibility
-X_test_flat = X_test.reshape(X_test.shape[0], -1)
-
-# Extract the fully connected part of the network only
-# (CNN layers would require additional implementation in MLGen3)
+# Now we'll convert the full VGG4 model including Conv2D and MaxPool2D layers
 from mlgen3.models.nn.neuralnet import NeuralNet
 from mlgen3.models.nn.linear import Linear
 from mlgen3.models.nn.activations import Relu
+from mlgen3.models.nn.conv2d import Conv2D
+from mlgen3.models.nn.maxpool2d import MaxPool2D
+from mlgen3.models.nn.batchnorm import BatchNorm
 
-# We need to run a forward pass to get the output of the flattened layer
-dummy_input = torch.tensor(X_test[0:1], dtype=torch.float32)
-with torch.no_grad():
-    # Get activations at each layer for the dummy input
-    activations = {}
-    def get_activation(name):
-        def hook(model, input, output):
-            activations[name] = output.detach()
-        return hook
-    
-    # Register hooks for the layer activations we need
-    handles = []
-    handles.append(model.model[8].register_forward_hook(get_activation('flatten')))  # Flatten layer
-    model(dummy_input)  # Forward pass to populate activations
-    
-    # Clean up hooks
-    for handle in handles:
-        handle.remove()
+# Extract layers and parameters from the trained model
+layers = []
 
-# Get the flattened features for the test set
-flattened_features = []
-with torch.no_grad():
-    for i in range(0, len(X_test), batch_size):
-        inputs = torch.tensor(X_test[i:i+batch_size], dtype=torch.float32)
-        # Run forward pass up to flatten layer
-        output = model.model[:9](inputs)  # Up to and including flatten
-        flattened_features.append(output)
+# First convolutional block
+conv1 = model.model[0]
+conv1_weight = conv1.weight.detach().numpy()
+conv1_bias = conv1.bias.detach().numpy()
+layers.append(Conv2D(conv1_weight, conv1_bias, 
+                    kernel_size=conv1.kernel_size, 
+                    stride=conv1.stride, 
+                    padding=conv1.padding))
 
-flattened_X_test = torch.cat(flattened_features, dim=0).numpy()
+# First max pooling
+maxpool1 = model.model[1]
+layers.append(MaxPool2D(kernel_size=maxpool1.kernel_size, 
+                        stride=maxpool1.stride, 
+                        padding=maxpool1.padding))
 
-# Extract the fully connected layers
-fc_layers = []
+# First batch norm
+bn1 = model.model[2]
+bn1_weight = bn1.weight.detach().numpy()
+bn1_bias = bn1.bias.detach().numpy()
+bn1_mean = bn1.running_mean.detach().numpy()
+bn1_var = bn1.running_var.detach().numpy()
+layers.append(BatchNorm(bn1_weight, bn1_bias, bn1_mean, bn1_var, bn1.eps))
 
-# First Linear + ReLU
-linear1 = model.model[9]  # First linear layer
-weight1 = linear1.weight.detach().numpy()
-bias1 = linear1.bias.detach().numpy()
-fc_layers.append(Linear(weight1, bias1))
-fc_layers.append(Relu(2048))  # Output shape from first linear layer
+# First ReLU
+layers.append(Relu(64))
 
-# Second Linear layer
-linear2 = model.model[11]  # Second linear layer
-weight2 = linear2.weight.detach().numpy()
-bias2 = linear2.bias.detach().numpy()
-fc_layers.append(Linear(weight2, bias2))
+# Second convolutional block
+conv2 = model.model[4]
+conv2_weight = conv2.weight.detach().numpy()
+conv2_bias = conv2.bias.detach().numpy()
+layers.append(Conv2D(conv2_weight, conv2_bias, 
+                    kernel_size=conv2.kernel_size, 
+                    stride=conv2.stride, 
+                    padding=conv2.padding))
+
+# Second max pooling
+maxpool2 = model.model[5]
+layers.append(MaxPool2D(kernel_size=maxpool2.kernel_size, 
+                        stride=maxpool2.stride, 
+                        padding=maxpool2.padding))
+
+# Second batch norm
+bn2 = model.model[6]
+bn2_weight = bn2.weight.detach().numpy()
+bn2_bias = bn2.bias.detach().numpy()
+bn2_mean = bn2.running_mean.detach().numpy()
+bn2_var = bn2.running_var.detach().numpy()
+layers.append(BatchNorm(bn2_weight, bn2_bias, bn2_mean, bn2_var, bn2.eps))
+
+# Second ReLU
+layers.append(Relu(64))
+
+# Flatten happens implicitly when reshaping for the first Linear layer
+
+# First fully connected layer
+fc1 = model.model[9]
+fc1_weight = fc1.weight.detach().numpy()
+fc1_bias = fc1.bias.detach().numpy()
+layers.append(Linear(fc1_weight, fc1_bias))
+
+# Third ReLU
+layers.append(Relu(2048))
+
+# Second fully connected layer
+fc2 = model.model[11]
+fc2_weight = fc2.weight.detach().numpy()
+fc2_bias = fc2.bias.detach().numpy()
+layers.append(Linear(fc2_weight, fc2_bias))
 
 # Create MLGen3 model
-mlgen_model = NeuralNet.from_layers(fc_layers)
-mlgen_model.XTest = flattened_X_test
+mlgen_model = NeuralNet.from_layers(layers)
+
+# Ensure test data is properly formatted for the Conv2D implementation
+# No need to reshape X_test as we want the Conv2D implementation to process it directly
+mlgen_model.XTest = X_test
 mlgen_model.YTest = y_test
 
-# Generate C++ code with NHWC implementation
+print(f"Input shape for MLGen3 model: {X_test.shape}")
+
+# Generate C++ code with NHWC implementation for the full CNN
 from mlgen3.implementations.neuralnet.cpp.nhwc import NHWC
 from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 
@@ -164,14 +193,14 @@ implementation = NHWC(
 implementation.implement()
 
 # Deploy and test the model
-print("Deploying FC layers of VGG4 model...")
+print("Deploying full VGG4 CNN model...")
 materializer = LinuxStandalone(
     implementation, 
     measure_accuracy=True, 
     measure_time=True
 )
 
-output_path = os.path.join("generated_code", "custom_vgg4_fc")
+output_path = os.path.join("generated_code", "custom_vgg4_full_cnn")
 os.makedirs(output_path, exist_ok=True)
 
 materializer.materialize(output_path)
@@ -179,8 +208,6 @@ print("Model materialized at:", output_path)
 materializer.deploy()
 print("Model deployed successfully.")
 results = materializer.run(verbose=True)
-print(f"Deployment results for FC layers: {results}")
+print(f"Deployment results for full VGG4 CNN: {results}")
 
-# Note: For full CNN support, additional implementations would be needed in MLGen3
-print("Note: This implementation only deploys the fully connected layers of the VGG4 model.")
-print("For full CNN support including Conv2d and MaxPool2d, additional implementations would be needed in MLGen3.")
+print("Full CNN implementation of VGG4 now supported in MLGen3!")
