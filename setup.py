@@ -9,7 +9,8 @@ setup(name='mlgen3',
     python_requires='>=3.7',
     packages=find_packages('.'),
     install_requires=[
-        'numpy', 'pandas', 'tqdm', 'importlib_resources'
+        'numpy', 'pandas', 'tqdm', 'importlib_resources',
+        'scipy', 'scikit-learn', 'torch', 'onnx', 'onnxruntime',
     ],
     extras_require = {
         'cpp': ["astyle-py"],

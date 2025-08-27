@@ -49,7 +49,7 @@ scheduler = StepLR(optimizer, step_size=2, gamma=0.5)
 
 # Training parameters
 batch_size = 64
-epochs = 1  # Reduced for faster execution in test environment
+epochs = 3  # Reduced for faster execution in test environment
 
 print("Training VGG4 model...")
 for epoch in range(epochs):

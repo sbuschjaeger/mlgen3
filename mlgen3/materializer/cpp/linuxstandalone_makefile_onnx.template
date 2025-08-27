@@ -1,0 +1,13 @@
+COMPILER = {compiler}
+FLAGS = -std=c++17 -Wall -O3 -funroll-loops -ftree-vectorize
+
+# Run the following source command before:
+# . "$HOME/.local/onnxruntime/activate_ort.sh"
+# or 
+# export ORT_HOME="$HOME/.local/onnxruntime/current"
+# export LD_LIBRARY_PATH="$ORT_HOME/lib:${LD_LIBRARY_PATH:-}"
+
+ONNX_FLAGS = -I$(ORT_HOME)/include -L$(ORT_HOME)/lib -lonnxruntime
+
+all:
+	$(COMPILER) $(FLAGS) main.cpp {filename}.cpp -o {filename} $(ONNX_FLAGS)

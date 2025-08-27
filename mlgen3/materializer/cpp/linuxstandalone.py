@@ -22,6 +22,7 @@ class LinuxStandalone(Materializer):
         measure_time=False,
         measure_perf=False,
         compiler="g++",
+        use_onnx=False,
     ):
         super().__init__(implementation)
         self.measure_accuracy = measure_accuracy
@@ -29,6 +30,7 @@ class LinuxStandalone(Materializer):
         self.measure_perf = measure_perf
         self.filename = "model" if filename is None else filename
         self.compiler = compiler
+        self.use_onnx = use_onnx
 
         # TODO Implement perf performance tests
         assert (
@@ -138,9 +140,15 @@ class LinuxStandalone(Materializer):
             self.measure_perf or self.measure_accuracy or self.measure_time
         ), "Cannot deploy model since no test code was generated for this implementation. Please set at-least on of the following arguments to true: measure_perf, measure_accuracy or measure_time"
 
+        # Select the appropriate makefile template based on whether ONNX is being used
+        if self.use_onnx:
+            makefile_template = "linuxstandalone_makefile_onnx.template"
+        else:
+            makefile_template = "linuxstandalone_makefile.template"
+            
         makefile_str = (
             files("mlgen3.materializer.cpp")
-            .joinpath("linuxstandalone_makefile.template")
+            .joinpath(makefile_template)
             .read_text()
         )
         makefile_str = makefile_str.replace("{filename}", self.filename).replace(
@@ -207,9 +215,12 @@ class LinuxStandalone(Materializer):
         for cur_line in lines:
             if len(cur_line) > 0:
                 l = cur_line.split(":")
-                metrics[l[0]] = l[1].split(" ")[1]
-
-        print(metrics)
+                if len(l) > 1:  # Check if the line contains a colon
+                    try:
+                        metrics[l[0]] = l[1].split(" ")[1]
+                    except IndexError:
+                        # If format is not as expected, store the whole value
+                        metrics[l[0]] = l[1].strip()
 
         return metrics
 
