@@ -1,5 +1,7 @@
 TODO:
 
-+ nhwc_onnx (for mlp) is different from vgg_onnx for vgg4 and vgg7!
+- add the ability to generate c++ code without pytorch training pipeline (just import onnx model)
 
-- dynamically set input sizes in the generated model.cpp code (and other variables, check)
+- add model converter from .pt to .onnx (if possible)
+
+- check whether .onnx stores quantization parameters (zero_point, scale), and how the weights are stored in this case (maybe .tflite is needed, as joseph suggested?)

@@ -542,6 +542,79 @@ def get_dataset(dataset, tmpdir = None):
         X_test_flat = X_test.reshape(X_test.shape[0], -1)
         
         return X_train_flat, y_train, X_test_flat, y_test
+    elif dataset == "imagenette":
+        # Set up download location
+        if tmpdir is None:
+            out_path = os.path.join(tempfile.gettempdir(), "data", "imagenette")
+        else:
+            out_path = os.path.join(tmpdir, "data", "imagenette")
+        
+        os.makedirs(out_path, exist_ok=True)
+        
+        # Check if dataset already exists
+        extracted_dir = os.path.join(out_path, "imagenette2")
+        if not os.path.exists(extracted_dir):
+            print("Imagenette dataset not found. Downloading...")
+            # Download imagenette (smaller version)
+            imagenette_url = "https://s3.amazonaws.com/fast-ai-imageclas/imagenette2.tgz"
+            tar_file = download(imagenette_url, "imagenette2.tgz", out_path)
+            
+            # Extract the tar file
+            import tarfile
+            with tarfile.open(tar_file, 'r:gz') as tar:
+                # Use filter parameter to avoid deprecation warning in Python 3.14+
+                if hasattr(tarfile, 'TAR_FILTER_NONE'):  # Python 3.12+
+                    tar.extractall(path=out_path, filter=tarfile.TAR_FILTER_NONE)
+                else:  # Earlier Python versions
+                    tar.extractall(path=out_path, filter="none")
+        
+        # Load and process images
+        from PIL import Image
+        import glob
+        
+        # Define image size and class mapping
+        img_size = 128  # Resize to this size for consistency
+        class_dirs = sorted([d for d in os.listdir(os.path.join(extracted_dir, "train")) 
+                            if os.path.isdir(os.path.join(extracted_dir, "train", d))])
+        class_to_idx = {class_dirs[i]: i for i in range(len(class_dirs))}
+        
+        # Process training set
+        train_images = []
+        train_labels = []
+        for class_dir in tqdm(class_dirs, desc="Processing training images"):
+            img_paths = glob.glob(os.path.join(extracted_dir, "train", class_dir, "*.JPEG"))
+            for img_path in img_paths:
+                try:
+                    img = Image.open(img_path).convert('RGB')
+                    img = img.resize((img_size, img_size))
+                    img_array = np.array(img).flatten()  # Flatten the image
+                    train_images.append(img_array)
+                    train_labels.append(class_to_idx[class_dir])
+                except Exception as e:
+                    print(f"Error processing {img_path}: {e}")
+        
+        # Process validation set (as test set)
+        test_images = []
+        test_labels = []
+        for class_dir in tqdm(class_dirs, desc="Processing validation images"):
+            img_paths = glob.glob(os.path.join(extracted_dir, "val", class_dir, "*.JPEG"))
+            for img_path in img_paths:
+                try:
+                    img = Image.open(img_path).convert('RGB')
+                    img = img.resize((img_size, img_size))
+                    img_array = np.array(img).flatten()  # Flatten the image
+                    test_images.append(img_array)
+                    test_labels.append(class_to_idx[class_dir])
+                except Exception as e:
+                    print(f"Error processing {img_path}: {e}")
+        
+        # Convert to numpy arrays
+        X_train = np.array(train_images)
+        y_train = np.array(train_labels)
+        X_test = np.array(test_images)
+        y_test = np.array(test_labels)
+        
+        return X_train, y_train, X_test, y_test
     else:
         raise ValueError("Unsupported dataset provided to get_dataset in datasets.py: {}!".format(dataset))
         # return None, None
