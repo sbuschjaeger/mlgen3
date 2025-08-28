@@ -152,34 +152,18 @@ class TestCustomVGG4ONNX(unittest.TestCase):
             internal_type="float",
             batch_size=self.batch_size
         )
-        implementation.implement()
-        
-        # Deploy using the materializer with ONNX support
-        print("Deploying model...")
-        materializer = LinuxStandalone(
-            implementation,
-            measure_accuracy=True,
-            measure_time=True,
-            use_onnx=True  # Enable ONNX support in the materializer
-        )
-        
-        materializer.materialize(self.output_dir)
-        print(f"Model materialized at: {self.output_dir}")
-        
-        # Copy ONNX model to deployment directory
-        import shutil
-        shutil.copy(onnx_path, self.output_dir)
 
-        # Prepare the test data for proper shape
-        test_data_flat = self.X_test.reshape(self.X_test.shape[0], -1)
-        
-        # Save test data in flattened format (needed for materializer's CSV handling)
-        test_data_path = os.path.join(self.output_dir, "testing.csv")
-        np.savetxt(test_data_path, test_data_flat, delimiter=',')
-        
-        # Save corresponding labels
-        test_labels_path = os.path.join(self.output_dir, "testing_labels.csv")
-        np.savetxt(test_labels_path, self.y_test, delimiter=',')
+        implementation.implement()
+
+        # Deploy the model using LinuxStandalone materializer
+        print("Deploying model...")
+        materializer = deploy_onnx_model(
+            implementation, 
+            self.output_dir,
+            LinuxStandalone,
+            measure_accuracy=True,
+            measure_time=True
+        )
         
         materializer.deploy()
         print("Model deployed successfully.\n")
