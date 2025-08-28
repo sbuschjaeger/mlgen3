@@ -166,7 +166,7 @@ class TestCustomMLPONNX(unittest.TestCase):
             use_onnx=True  # Use the ONNX-specific Makefile template
         )
         
-        output_path = os.path.join("generated_code", "onnx_mlp")
+        output_path = os.path.join("generated_code", "mlp_onnx")
         materializer.materialize(output_path)
         print(f"Model materialized at: {output_path}")
         
