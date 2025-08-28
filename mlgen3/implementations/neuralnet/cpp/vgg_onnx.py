@@ -16,9 +16,13 @@ class VGG_ONNX(Implementation):
         label_type: C++ type for output labels
         internal_type: C++ type for internal computations
         batch_size: Batch size for inference
+        input_channels: Number of input channels (e.g., 1 for grayscale, 3 for RGB)
+        input_height: Height of input images
+        input_width: Width of input images
     """
     
-    def __init__(self, model, onnx_path, feature_type="float", label_type="int", internal_type="float", batch_size=128):
+    def __init__(self, model, onnx_path, feature_type="float", label_type="int", internal_type="float", 
+                 batch_size=128, input_channels=None, input_height=None, input_width=None):
         """
         Initialize the VGG_ONNX implementation.
         
@@ -29,12 +33,33 @@ class VGG_ONNX(Implementation):
             label_type: C++ type for output labels
             internal_type: C++ type for internal computations
             batch_size: Batch size for inference
+            input_channels: Number of input channels (default: auto-detect from model)
+            input_height: Height of input images (default: auto-detect from model)
+            input_width: Width of input images (default: auto-detect from model)
         """
         super().__init__(model, feature_type, label_type)
         self.onnx_path = onnx_path
         self.internal_type = internal_type
         self.batch_size = batch_size
         self.model.onnx_path = onnx_path  # Store path for later use by materializer
+        
+        # Determine input dimensions from model data if not specified
+        if input_channels is None or input_height is None or input_width is None:
+            # Try to infer from XTest if available (assumed to be in NCHW format)
+            if hasattr(model, 'XTest') and model.XTest is not None and len(model.XTest.shape) == 4:
+                _, channels, height, width = model.XTest.shape
+                self.input_channels = input_channels if input_channels is not None else channels
+                self.input_height = input_height if input_height is not None else height
+                self.input_width = input_width if input_width is not None else width
+            else:
+                # Default to MNIST/Fashion-MNIST dimensions if no data available
+                self.input_channels = input_channels if input_channels is not None else 1
+                self.input_height = input_height if input_height is not None else 28
+                self.input_width = input_width if input_width is not None else 28
+        else:
+            self.input_channels = input_channels
+            self.input_height = input_height
+            self.input_width = input_width
         
     def implement(self):
         """Generate C++ code for VGG ONNX model inference."""
@@ -57,6 +82,11 @@ class VGG_ONNX(Implementation):
             static Ort::Env env;
             static Ort::Session* session = nullptr;
             static bool model_loaded = false;
+            
+            // Input dimensions
+            static const int INPUT_CHANNELS = {self.input_channels};
+            static const int INPUT_HEIGHT = {self.input_height};
+            static const int INPUT_WIDTH = {self.input_width};
             
             
             void initialize_onnx_model() {{
@@ -91,20 +121,20 @@ class VGG_ONNX(Implementation):
         
             std::vector<{self.label_type}> run_inference(std::vector<{self.feature_type}> &x) {{
                 // Calculate the actual batch size from the input data
-                // For CNN input with shape [batch_size, 1, 28, 28], each sample has 784 elements
+                // For CNN input with shape [batch_size, channels, height, width]
                 int input_size = x.size();
-                int sample_size = 1 * 28 * 28; // channels * height * width
+                int sample_size = INPUT_CHANNELS * INPUT_HEIGHT * INPUT_WIDTH;
                 int actual_batch_size = input_size / sample_size;
                 
                 if (actual_batch_size * sample_size != input_size) {{
                     std::cerr << "Input size " << input_size << " is not divisible by sample size " 
-                              << sample_size << " (1*28*28)." << std::endl;
+                              << sample_size << " (" << INPUT_CHANNELS << "*" << INPUT_HEIGHT << "*" << INPUT_WIDTH << ")." << std::endl;
                     return std::vector<{self.label_type}>();
                 }}
                 
                 // Create input tensor with the correct batch size
                 std::vector<float> input_tensor_values(x.begin(), x.end());
-                std::vector<int64_t> input_shape = {{actual_batch_size, 1, 28, 28}};
+                std::vector<int64_t> input_shape = {{actual_batch_size, INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH}};
                 
                 Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
                 Ort::Value input_tensor = Ort::Value::CreateTensor<float>(

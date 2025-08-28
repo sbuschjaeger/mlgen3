@@ -6,6 +6,7 @@ from sklearn.preprocessing import LabelEncoder
 from scipy.io.arff import loadarff
 import urllib
 import urllib.request
+import shutil
 
 from io import BytesIO, TextIOWrapper
 from zipfile import ZipFile
@@ -465,14 +466,82 @@ def get_dataset(dataset, tmpdir = None):
         Y_test = le.transform(Y_test)
 
         return X_train,Y_train,X_test,Y_test
-    # elif dataset == "shuttle":
-    #     shuttle_path = download("https://www.openml.org/data/get_csv/3619/dataset_186_satimage.arff", "satimage.csv", tmpdir)
-    #     df = pd.read_csv(shuttle_path, header = 0, delimiter=",")
-    #     df = df.dropna()
-    #     label = df.pop("class")
-    #     le = LabelEncoder()
-    #     Y = le.fit_transform(label)
-    #     X = df.values
+    elif dataset == "cifar10":
+        def load_cifar10(path):
+            """Load CIFAR-10 dataset from path"""
+            import pickle
+            
+            def unpickle(file):
+                with open(file, 'rb') as fo:
+                    dict = pickle.load(fo, encoding='bytes')
+                return dict
+            
+            # Load training batches
+            X_train = []
+            y_train = []
+            for batch_id in range(1, 6):
+                batch_file = os.path.join(path, f'data_batch_{batch_id}')
+                batch_data = unpickle(batch_file)
+                X_train.append(batch_data[b'data'])
+                y_train.extend(batch_data[b'labels'])
+            
+            # Combine training batches
+            X_train = np.vstack(X_train).reshape(-1, 3, 32, 32)
+            X_train = np.transpose(X_train, (0, 2, 3, 1))  # Convert to NHWC format
+            y_train = np.array(y_train)
+            
+            # Load test batch
+            test_file = os.path.join(path, 'test_batch')
+            test_data = unpickle(test_file)
+            X_test = np.array(test_data[b'data']).reshape(-1, 3, 32, 32)
+            X_test = np.transpose(X_test, (0, 2, 3, 1))  # Convert to NHWC format
+            y_test = np.array(test_data[b'labels'])
+            
+            return X_train, y_train, X_test, y_test
+        
+        # Set up download location
+        if tmpdir is None:
+            out_path = os.path.join(tempfile.gettempdir(), "data", "cifar10")
+        else:
+            out_path = os.path.join(tmpdir, "data", "cifar10")
+        
+        os.makedirs(out_path, exist_ok=True)
+        
+        # Check if dataset already exists
+        all_files_exist = all(os.path.exists(os.path.join(out_path, f)) for f in 
+                             ['data_batch_1', 'data_batch_2', 'data_batch_3', 'data_batch_4', 'data_batch_5', 'test_batch'])
+        
+        if not all_files_exist:
+            print("CIFAR10 dataset not found. Downloading...")
+            cifar_url = "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
+            tar_file = download(cifar_url, "cifar-10-python.tar.gz", out_path)
+            
+            # Extract the tar file
+            import tarfile
+            with tarfile.open(tar_file, 'r:gz') as tar:
+                # Use filter parameter to avoid deprecation warning in Python 3.14+
+                if hasattr(tarfile, 'TAR_FILTER_NONE'):  # Python 3.12+
+                    tar.extractall(path=out_path, filter=tarfile.TAR_FILTER_NONE)
+                else:  # Earlier Python versions
+                    tar.extractall(path=out_path, filter='none')
+            
+            # Move files from extracted directory to out_path
+            extracted_dir = os.path.join(out_path, "cifar-10-batches-py")
+            for f in os.listdir(extracted_dir):
+                shutil.move(os.path.join(extracted_dir, f), out_path)
+            
+            # Clean up
+            if os.path.exists(extracted_dir):
+                shutil.rmtree(extracted_dir)
+        
+        # Load the dataset
+        X_train, y_train, X_test, y_test = load_cifar10(out_path)
+        
+        # Reshape data for MLGen format (samples, features) - flattening the images
+        X_train_flat = X_train.reshape(X_train.shape[0], -1)
+        X_test_flat = X_test.reshape(X_test.shape[0], -1)
+        
+        return X_train_flat, y_train, X_test_flat, y_test
     else:
         raise ValueError("Unsupported dataset provided to get_dataset in datasets.py: {}!".format(dataset))
         # return None, None

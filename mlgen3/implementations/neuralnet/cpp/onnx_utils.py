@@ -26,6 +26,7 @@ def deploy_onnx_model(model, output_path, materializer_class, **kwargs):
 
     # Generate the files
     materializer.materialize(output_path)
+    print(f"Model materialized at: {output_path}")
 
     # Copy the ONNX model to the deployment directory if available
     if hasattr(model, 'onnx_path') and os.path.exists(model.onnx_path):
