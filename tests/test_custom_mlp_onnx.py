@@ -92,7 +92,7 @@ class TestCustomMLPONNX(unittest.TestCase):
                 correct += (predicted == targets).sum().item()
 
         accuracy = 100 * correct / total
-        print(f"\nModel accuracy on test set: {accuracy:.2f}%")
+        print(f"\nPyTorch Model Accuracy: {accuracy:.2f}%")
 
         # Create output directory for ONNX model
         output_dir = os.path.join("generated_code", "onnx_models")
@@ -100,7 +100,7 @@ class TestCustomMLPONNX(unittest.TestCase):
         onnx_path = os.path.join(output_dir, "simple_mlp.onnx")
         
         # Export to ONNX format
-        print(f"Exporting model to ONNX format: {onnx_path}")
+        print(f"Exporting model to ONNX format")
         dummy_input = torch.randn(1, 784, requires_grad=False)
         torch.onnx.export(
             model,
@@ -114,7 +114,7 @@ class TestCustomMLPONNX(unittest.TestCase):
             dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
         )
         
-        print("\nONNX model exported successfully.")
+        print(f"\nONNX Model exported successfully to {onnx_path}")
         
         # Create MLGen3 model for testing
         # We still need a MLGen3 model structure, but weights will be loaded from ONNX

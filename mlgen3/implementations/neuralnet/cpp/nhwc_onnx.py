@@ -182,4 +182,3 @@ class NHWC_ONNX(Implementation):
                 return result;
             }}
         """
-
