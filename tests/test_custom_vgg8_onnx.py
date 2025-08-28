@@ -84,28 +84,36 @@ class TestCustomVGG8ONNX(unittest.TestCase):
         os.makedirs(self.output_dir, exist_ok=True)
         self.onnx_dir = os.path.join("generated_code", "onnx_models")
         os.makedirs(self.onnx_dir, exist_ok=True)
+        
+        # Check if CUDA is available
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
 
     def test_vgg8_onnx_export_and_deploy(self):
         # Train the model
         model = self.model_cls()
+        # Move model to GPU if available
+        model.to(self.device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
         scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
         
         # Training parameters - reduced for faster testing
-        epochs = 3
+        epochs = 5
         
         print("Training VGG8 model...")
         for epoch in range(epochs):
             model.train()
             running_loss = 0.0
             for i in tqdm(range(0, len(self.X_train), self.batch_size), desc=f"Epoch {epoch+1}/{epochs}"):
-                inputs = torch.tensor(self.X_train[i:i+self.batch_size], dtype=torch.float32)
-                targets = torch.tensor(self.y_train[i:i+self.batch_size], dtype=torch.long)
+                inputs = torch.tensor(self.X_train[i:i+self.batch_size], dtype=torch.float32).to(self.device)
+                targets = torch.tensor(self.y_train[i:i+self.batch_size], dtype=torch.long).to(self.device)
                 
                 optimizer.zero_grad()
+
                 outputs = model(inputs)
                 loss = criterion(outputs, targets)
+                
                 loss.backward()
                 optimizer.step()
                 
@@ -121,8 +129,8 @@ class TestCustomVGG8ONNX(unittest.TestCase):
             total = 0
             
             for i in range(0, len(self.X_test), self.batch_size):
-                inputs = torch.tensor(self.X_test[i:i+self.batch_size], dtype=torch.float32)
-                targets = torch.tensor(self.y_test[i:i+self.batch_size], dtype=torch.long)
+                inputs = torch.tensor(self.X_test[i:i+self.batch_size], dtype=torch.float32).to(self.device)
+                targets = torch.tensor(self.y_test[i:i+self.batch_size], dtype=torch.long).to(self.device)
                 
                 outputs = model(inputs)
                 _, predicted = torch.max(outputs.data, 1)
@@ -132,8 +140,9 @@ class TestCustomVGG8ONNX(unittest.TestCase):
             pytorch_accuracy = 100 * correct / total
             print(f"\nPyTorch Model Accuracy: {pytorch_accuracy:.2f}%")
         
-        # Export to ONNX
+        # Export to ONNX - move model to CPU for ONNX export
         print("Exporting VGG8 model to ONNX format...")
+        model.to("cpu")
         onnx_path = os.path.join(self.onnx_dir, "vgg8_model.onnx")
         
         # Create a dummy input for the model
