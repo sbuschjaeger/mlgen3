@@ -31,5 +31,9 @@ def deploy_onnx_model(model, output_path, materializer_class, **kwargs):
     # Copy the ONNX model to the deployment directory if available
     if hasattr(model, 'onnx_path') and os.path.exists(model.onnx_path):
         shutil.copy2(model.onnx_path, os.path.join(output_path, os.path.basename(model.onnx_path)))
+    
+    # Copy quantization parameters file if available
+    if hasattr(model, 'quant_params_path') and model.quant_params_path and os.path.exists(model.quant_params_path):
+        shutil.copy2(model.quant_params_path, os.path.join(output_path, os.path.basename(model.quant_params_path)))
 
     return materializer

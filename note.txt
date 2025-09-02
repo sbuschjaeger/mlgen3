@@ -1,7 +1,23 @@
 TODO:
 
 - add the ability to generate c++ code without pytorch training pipeline (just import onnx model)
+- add model converter from .pt to .onnx (if possible) or from .pt to .tflite (?)
+    => matquant models are basically stored as 8-bit quantized models
+    => ? do the .pt matquant files contain the zero_point and scale??
 
-- add model converter from .pt to .onnx (if possible)
 
 - check whether .onnx stores quantization parameters (zero_point, scale), and how the weights are stored in this case (maybe .tflite is needed, as joseph suggested?)
+    => it does store something (with quantstub()) but only for 8-bit is somehow doable
+- quantized mlp, vgg, resnet code generation with onnx
+    => better focus on directly implementing matquant models, and how to run matquant in c++ at runtime
+
+
+=> might be better to look into tflite format (especially for 4 and 2 bit QAT).
+
++ keep in mind, that for matquant we only need to store the model in 8-bit format (should be supported by onnx somehow doable) => slicing will be done at runtime, but has to be custom implemented in c++
+
+
+
+TODO later:
++ cuda memory not cleared after pytorch training (stays occupied during deployment and c++ inference)
++ slow c++ inference of model during testing (using cpu probably -> use onnxruntime for gpu?)
