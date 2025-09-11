@@ -14,8 +14,6 @@ from Datasets import get_dataset
 
 # Load MNIST dataset
 X_train, y_train, X_test, y_test = get_dataset("mnist")
-
-# Normalize data
 X_train = X_train.astype('float32') / 255.0
 X_test = X_test.astype('float32') / 255.0
 
@@ -56,7 +54,7 @@ def quantize_weights(weights, num_bits=8):
     
     return dequantized_weights, scale, zero_point
 
-# Apply Straight-Through Estimator (STE) for backpropagation
+# Apply Straight-Through Estimator for backpropagation
 class StraightThroughEstimator(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, quantized_input):
@@ -104,7 +102,6 @@ scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
 num_bits = 8
 hooks = add_quantization_hooks(model, num_bits)
 
-# Training parameters
 batch_size = 64
 epochs = 5
 
@@ -124,15 +121,16 @@ for epoch in range(epochs):
         running_loss += loss.item()
     
     scheduler.step()
-    # Print epoch statistics
+    
     print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/(len(X_train)/batch_size):.4f}")
 
 # Remove hooks after training
 for hook in hooks:
     hook.remove()
 
-# Test the PyTorch model's accuracy
+# Test model accuracy
 model.eval()
+
 with torch.no_grad():
     correct = 0
     total = 0
@@ -149,7 +147,6 @@ with torch.no_grad():
     print(f"PyTorch Model Accuracy: {100 * correct / total:.2f}%")
 
 print("Converting to MLGen3 quantized model...")
-# Convert PyTorch model to MLGen3 model
 from mlgen3.models.nn.neuralnet import NeuralNet
 from mlgen3.models.nn.linear import Linear
 from mlgen3.models.nn.batchnorm import BatchNorm
@@ -158,13 +155,12 @@ from mlgen3.models.nn.activations import Relu
 # Extract layers and parameters
 layers = []
 for i in range(0, len(model.layers), 3):
-    # Linear layer
+    
     linear_layer = model.layers[i]
     weight = linear_layer.weight.detach().numpy()
     bias = linear_layer.bias.detach().numpy()
     layers.append(Linear(weight, bias))
     
-    # BatchNorm layer
     if i+1 < len(model.layers) and isinstance(model.layers[i+1], nn.BatchNorm1d):
         bn_layer = model.layers[i+1]
         weight = bn_layer.weight.detach().numpy()
@@ -174,7 +170,6 @@ for i in range(0, len(model.layers), 3):
         eps = bn_layer.eps
         layers.append(BatchNorm(weight, bias, running_mean, running_var, eps))
     
-    # ReLU activation layer
     if i+2 < len(model.layers) and isinstance(model.layers[i+2], nn.ReLU):
         output_shape = weight.shape[0]  # Output shape from previous linear layer
         layers.append(Relu(output_shape))
@@ -210,7 +205,9 @@ os.makedirs(output_path, exist_ok=True)
 
 materializer.materialize(output_path)
 print("Model materialized at:", output_path)
+
 materializer.deploy()
 print("Model deployed successfully.")
+
 results = materializer.run(verbose=True)
 print(f"Deployment results: {results}")

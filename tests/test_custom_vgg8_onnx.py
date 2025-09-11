@@ -24,13 +24,13 @@ from mlgen3.implementations.neuralnet.cpp.onnx_utils import deploy_onnx_model
 
 class TestCustomVGG8ONNX(unittest.TestCase):
     def setUp(self):
+
         # Load CIFAR10 dataset
         self.X_train, self.y_train, self.X_test, self.y_test = get_dataset("cifar10")
-        # Reshape data for CNN (samples, channels, height, width)
         self.X_train = self.X_train.reshape(-1, 3, 32, 32).astype('float32') / 255.0
         self.X_test = self.X_test.reshape(-1, 3, 32, 32).astype('float32') / 255.0
         
-        # Define the VGG8 network architecture
+        # Define VGG8 network architecture
         class VGG8(nn.Module):
             def __init__(self):
                 super(VGG8, self).__init__()
@@ -90,15 +90,14 @@ class TestCustomVGG8ONNX(unittest.TestCase):
         print(f"Using device: {self.device}")
 
     def test_vgg8_onnx_export_and_deploy(self):
-        # Train the model
+
         model = self.model_cls()
-        # Move model to GPU if available
         model.to(self.device)
+
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
         scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
         
-        # Training parameters - reduced for faster testing
         epochs = 5
         
         print("Training VGG8 model...")
@@ -121,8 +120,8 @@ class TestCustomVGG8ONNX(unittest.TestCase):
             
             scheduler.step()
             print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/(len(self.X_train)/self.batch_size):.4f}")
-        
-        # Test the PyTorch model's accuracy
+
+        # Test model accuracy
         model.eval()
         with torch.no_grad():
             correct = 0
@@ -174,10 +173,10 @@ class TestCustomVGG8ONNX(unittest.TestCase):
         mlgen_model = NeuralNet.from_layers(layers)
         
         # DO NOT flatten the test data - keep original 4D shape (samples, channels, height, width)
-        mlgen_model.XTest = self.X_test  # Keep the 4D shape
+        mlgen_model.XTest = self.X_test
         mlgen_model.YTest = self.y_test
         
-        # Generate C++ code using VGG_ONNX implementation
+        # Generate C++ code
         print("Generating C++ code using VGG_ONNX implementation...")
         implementation = VGG_ONNX(
             mlgen_model,
@@ -191,7 +190,7 @@ class TestCustomVGG8ONNX(unittest.TestCase):
         # Generate implementation code
         implementation.implement()
         
-        # Deploy the model using LinuxStandalone materializer
+        # Deploy the model using materializer
         print("Deploying model...")
         materializer = deploy_onnx_model(
             implementation, 
@@ -212,8 +211,7 @@ class TestCustomVGG8ONNX(unittest.TestCase):
         if "Accuracy" in results:
             onnx_accuracy = float(results["Accuracy"])
             accuracy_diff = abs(onnx_accuracy - pytorch_accuracy)
-            # Allow a larger margin for CIFAR10 which is more challenging
-            self.assertLess(accuracy_diff, 15.0)
+            self.assertLess(accuracy_diff, 10.0)
 
 if __name__ == '__main__':
     unittest.main()

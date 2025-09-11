@@ -26,11 +26,10 @@ class TestCustomVGG4ONNX(unittest.TestCase):
     def setUp(self):
         # Load Fashion-MNIST dataset
         self.X_train, self.y_train, self.X_test, self.y_test = get_dataset("fashion")
-        # Reshape data for CNN (adding channel dimension)
         self.X_train = self.X_train.reshape(-1, 1, 28, 28).astype('float32') / 255.0
         self.X_test = self.X_test.reshape(-1, 1, 28, 28).astype('float32') / 255.0
         
-        # Define the VGG4 network architecture
+        # Define VGG4 network architecture (same model as in qnn matquant framework)
         class VGG(nn.Module):
             def __init__(self):
                 super(VGG, self).__init__()
@@ -64,15 +63,15 @@ class TestCustomVGG4ONNX(unittest.TestCase):
         print(f"Using device: {self.device}")
 
     def test_vgg4_onnx_export_and_deploy(self):
-        # Train the model
+        
+
         model = self.model_cls()
-        # Move model to GPU if available
         model.to(self.device)
+        
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
         scheduler = StepLR(optimizer, step_size=2, gamma=0.5)
         
-        # Training parameters - reduced for faster testing
         epochs = 3
         
         print("Training VGG4 model...")
@@ -94,7 +93,7 @@ class TestCustomVGG4ONNX(unittest.TestCase):
             scheduler.step()
             print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/(len(self.X_train)/self.batch_size):.4f}")
         
-        # Test the PyTorch model's accuracy
+        # Test model accuracy
         model.eval()
         with torch.no_grad():
             correct = 0
@@ -146,10 +145,10 @@ class TestCustomVGG4ONNX(unittest.TestCase):
         mlgen_model = NeuralNet.from_layers(layers)
         
         # DO NOT flatten the test data - keep original 4D shape (samples, channels, height, width)
-        mlgen_model.XTest = self.X_test  # Keep the 4D shape
+        mlgen_model.XTest = self.X_test
         mlgen_model.YTest = self.y_test
         
-        # Generate C++ code using VGG_ONNX implementation
+        # Generate C++ code
         print("Generating C++ code using VGG_ONNX implementation...")
         implementation = VGG_ONNX(
             mlgen_model,
@@ -162,7 +161,7 @@ class TestCustomVGG4ONNX(unittest.TestCase):
 
         implementation.implement()
 
-        # Deploy the model using LinuxStandalone materializer
+        # Deploy the model using materializer
         print("Deploying model...")
         materializer = deploy_onnx_model(
             implementation, 

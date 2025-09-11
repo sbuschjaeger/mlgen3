@@ -13,8 +13,6 @@ from Datasets import get_dataset
 
 # Load MNIST dataset
 X_train, y_train, X_test, y_test = get_dataset("mnist")
-
-# Normalize data
 X_train = X_train.astype('float32') / 255.0
 X_test = X_test.astype('float32') / 255.0
 
@@ -35,12 +33,10 @@ class SimpleMLP(nn.Module):
     def forward(self, x):
         return self.layers(x)
 
-# Train the model
 model = SimpleMLP()
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# Training parameters
 batch_size = 64
 epochs = 3
 
@@ -59,10 +55,9 @@ for epoch in range(epochs):
         
         running_loss += loss.item()
     
-    # Print epoch statistics
     print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/(len(X_train)/batch_size):.4f}")
 
-# Test the PyTorch model's accuracy
+# Test model accuracy
 model.eval()
 with torch.no_grad():
     correct = 0
@@ -80,7 +75,6 @@ with torch.no_grad():
     print(f"PyTorch Model Accuracy: {100 * correct / total:.2f}%")
 
 print("Converting to MLGen3 model...")
-# Convert PyTorch model to MLGen3 model
 from mlgen3.models.nn.neuralnet import NeuralNet
 from mlgen3.models.nn.linear import Linear
 from mlgen3.models.nn.batchnorm import BatchNorm
@@ -89,13 +83,12 @@ from mlgen3.models.nn.activations import Relu
 # Extract layers and parameters
 layers = []
 for i in range(0, len(model.layers), 3):
-    # Linear layer
+    
     linear_layer = model.layers[i]
     weight = linear_layer.weight.detach().numpy()
     bias = linear_layer.bias.detach().numpy()
     layers.append(Linear(weight, bias))
     
-    # BatchNorm layer
     if i+1 < len(model.layers) and isinstance(model.layers[i+1], nn.BatchNorm1d):
         bn_layer = model.layers[i+1]
         weight = bn_layer.weight.detach().numpy()
@@ -105,7 +98,6 @@ for i in range(0, len(model.layers), 3):
         eps = bn_layer.eps
         layers.append(BatchNorm(weight, bias, running_mean, running_var, eps))
     
-    # ReLU activation layer
     if i+2 < len(model.layers) and isinstance(model.layers[i+2], nn.ReLU):
         output_shape = weight.shape[0]  # Output shape from previous linear layer
         layers.append(Relu(output_shape))
@@ -134,15 +126,14 @@ materializer = LinuxStandalone(
     measure_accuracy=True, 
     measure_time=True
 )
-# output_path = os.path.join(tempfile.gettempdir(), "mlgen3", "mnist_mlp")
-
-# output_path = os.path.join(os.path.abspath(__file__), "generated_code", "custom_mnist_mlp")
 output_path = os.path.join("generated_code", "custom_mnist_mlp")
 os.makedirs(output_path, exist_ok=True)
 
 materializer.materialize(output_path)
 print("Model materialized at:", output_path)
+
 materializer.deploy()
 print("Model deployed successfully.")
+
 results = materializer.run(verbose=True)
 print(f"Deployment results: {results}")

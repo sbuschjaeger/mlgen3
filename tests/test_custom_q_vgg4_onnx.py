@@ -28,12 +28,11 @@ class TestCustomQVGG4ONNX(unittest.TestCase):
     def setUp(self):
         # Load Fashion-MNIST dataset
         self.X_train, self.y_train, self.X_test, self.y_test = get_dataset("fashion")
-        # Reshape data for CNN (adding channel dimension)
         self.X_train = self.X_train.reshape(-1, 1, 28, 28).astype('float32') / 255.0
         self.X_test = self.X_test.reshape(-1, 1, 28, 28).astype('float32') / 255.0
         
         # Configuration for quantization
-        self.bit_width = 8  # Options: 8, 4, or 2 bit
+        self.bit_width = 8  # Options: 8, 4, 2
         
         # Define the Quantization-Aware VGG4 network architecture
         class QVGG(nn.Module):
@@ -70,14 +69,14 @@ class TestCustomQVGG4ONNX(unittest.TestCase):
                 x = self.dequant(x)
                 return x
                 
-            # Helper function to fuse modules - required for proper quantization
-            def fuse_model(self):
-                # Explicitly specify which modules to fuse - this approach is more reliable
-                torch.quantization.fuse_modules(
-                    self.features,
-                    [['0', '1'], ['4', '5']],  # Conv-BN pairs
-                    inplace=True
-                )
+            # # Helper function to fuse modules - required for proper quantization
+            # def fuse_model(self):
+            #     # Explicitly specify which modules to fuse - this approach is more reliable
+            #     torch.quantization.fuse_modules(
+            #         self.features,
+            #         [['0', '1'], ['4', '5']],  # Conv-BN pairs
+            #         inplace=True
+            #     )
         
         self.model_cls = QVGG
         self.batch_size = 128
@@ -150,7 +149,6 @@ class TestCustomQVGG4ONNX(unittest.TestCase):
             optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9, weight_decay=0.001)
             scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
 
-        # Training parameters - reduced for faster testing
         epochs = 1
         
         print(f"Training VGG4 model with {self.bit_width}-bit QAT...")
@@ -276,7 +274,7 @@ class TestCustomQVGG4ONNX(unittest.TestCase):
         with open(quant_params_path, 'w') as f:
             json.dump(quant_params, f, indent=2)
     
-        # Export the pre-quantized model to ONNX (much more reliable)
+        # Export the pre-quantized model to ONNX
         print(f"Exporting pre-quantized VGG4 model to ONNX format...")
         onnx_path = os.path.join(self.onnx_dir, f"vgg4_quantized_{self.bit_width}bit.onnx")
         

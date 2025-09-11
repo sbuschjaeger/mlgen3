@@ -41,7 +41,7 @@ class VGG_ONNX(Implementation):
         self.onnx_path = onnx_path
         self.internal_type = internal_type
         self.batch_size = batch_size
-        self.model.onnx_path = onnx_path  # Store path for later use by materializer
+        self.model.onnx_path = onnx_path
         
         # Determine input dimensions from model data if not specified
         if input_channels is None or input_height is None or input_width is None:
@@ -52,10 +52,7 @@ class VGG_ONNX(Implementation):
                 self.input_height = input_height if input_height is not None else height
                 self.input_width = input_width if input_width is not None else width
             else:
-                # Default to MNIST/Fashion-MNIST dimensions if no data available
-                self.input_channels = input_channels if input_channels is not None else 1
-                self.input_height = input_height if input_height is not None else 28
-                self.input_width = input_width if input_width is not None else 28
+                raise ValueError("Input dimensions (channels, height, width) must be specified if XTest is not available.")
         else:
             self.input_channels = input_channels
             self.input_height = input_height

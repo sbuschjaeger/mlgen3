@@ -3,7 +3,6 @@ TODO:
 - add the ability to generate c++ code without pytorch training pipeline (just import onnx model)
 - add model converter from .pt to .onnx (if possible) or from .pt to .tflite (?)
     => matquant models are basically stored as 8-bit quantized models
-    => ? do the .pt matquant files contain the zero_point and scale??
 
 
 - check whether .onnx stores quantization parameters (zero_point, scale), and how the weights are stored in this case (maybe .tflite is needed, as joseph suggested?)

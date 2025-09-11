@@ -107,7 +107,6 @@ class TestCustomResNet18ONNX(unittest.TestCase):
             self.X_train, self.y_train, self.X_test, self.y_test = get_dataset("imagenette")
             
             # Reshape data for CNN (from flattened to NCHW format)
-            # Imagenette images are 3-channel RGB
             self.img_size = int(np.sqrt(self.X_train.shape[1] // 3))
             self.X_train = self.X_train.reshape(-1, 3, self.img_size, self.img_size).astype('float32') / 255.0
             self.X_test = self.X_test.reshape(-1, 3, self.img_size, self.img_size).astype('float32') / 255.0
@@ -115,19 +114,11 @@ class TestCustomResNet18ONNX(unittest.TestCase):
             print(f"\nData loaded and reshaped to: {self.X_train.shape}")
         except Exception as e:
             print(f"Error loading dataset: {e}")
-            print("Using synthetic data for testing...")
-            
-            # Create synthetic data if dataset loading fails
-            self.img_size = 128
-            self.X_train = np.random.rand(100, 3, self.img_size, self.img_size).astype('float32')
-            self.y_train = np.random.randint(0, 10, size=100).astype(np.int32)
-            self.X_test = np.random.rand(20, 3, self.img_size, self.img_size).astype('float32')
-            self.y_test = np.random.randint(0, 10, size=20).astype(np.int32)
         
         # Set model parameters
         self.num_classes = len(np.unique(self.y_train))
         self.model_cls = ResNet
-        self.batch_size = 128  # Changed from 16 to 128
+        self.batch_size = 128
         
         # Check if CUDA is available
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -140,24 +131,17 @@ class TestCustomResNet18ONNX(unittest.TestCase):
         os.makedirs(self.onnx_dir, exist_ok=True)
 
     def test_resnet18_onnx_export_and_deploy(self):
-        # Create the ResNet18 model
+        
         model = self.model_cls(num_classes=self.num_classes)
-        # Move model to GPU if available
         model = model.to(self.device)
         print(f"Created ResNet18 model with {self.num_classes} output classes on {self.device}\n")
         
         # Configure training parameters
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(
-            model.parameters(), 
-            lr=0.01,            # Changed from 0.001
-            momentum=0.9,       # Added momentum parameter
-            weight_decay=0.0001 # Added weight decay
-        )
-        scheduler = StepLR(optimizer, step_size=3, gamma=0.1)  # Changed step_size from 5 to 3
+        optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0001)
+        scheduler = StepLR(optimizer, step_size=3, gamma=0.1)
         
-        # Training parameters
-        epochs = 10  # Changed from 1 to 10
+        epochs = 1
         
         print("Training ResNet18 model...")
         for epoch in range(epochs):
@@ -168,14 +152,11 @@ class TestCustomResNet18ONNX(unittest.TestCase):
                 inputs = torch.tensor(self.X_train[i:i+self.batch_size], dtype=torch.float32).to(self.device)
                 targets = torch.tensor(self.y_train[i:i+self.batch_size], dtype=torch.long).to(self.device)
                 
-                # Zero the parameter gradients
                 optimizer.zero_grad()
                 
-                # Forward pass
                 outputs = model(inputs)
                 loss = criterion(outputs, targets)
                 
-                # Backward pass and optimize
                 loss.backward()
                 optimizer.step()
                 
@@ -184,7 +165,7 @@ class TestCustomResNet18ONNX(unittest.TestCase):
             scheduler.step()
             print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/(len(self.X_train)/self.batch_size):.4f}")
         
-        # Evaluate the PyTorch model
+        # Evaluate model
         model.eval()
         with torch.no_grad():
             correct = 0
@@ -258,7 +239,7 @@ class TestCustomResNet18ONNX(unittest.TestCase):
         # Generate implementation code
         implementation.implement()
         
-        # Deploy the model using LinuxStandalone materializer
+        # Deploy the model using materializer
         print("Deploying model...")
         materializer = deploy_onnx_model(
             implementation, 

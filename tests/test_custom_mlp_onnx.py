@@ -27,13 +27,11 @@ class TestCustomMLPONNX(unittest.TestCase):
     def setUp(self):
         # Load MNIST dataset
         self.X_train, self.y_train, self.X_test, self.y_test = get_dataset("mnist")
-        
-        # Normalize data
         self.X_train = self.X_train.astype('float32') / 255.0
         self.X_test = self.X_test.astype('float32') / 255.0
     
     def test_mlp_onnx_export_and_deploy(self):
-        # Define a simple PyTorch MLP model
+        # Define a simple MLP model
         class SimpleMLP(nn.Module):
             def __init__(self):
                 super(SimpleMLP, self).__init__()
@@ -56,9 +54,8 @@ class TestCustomMLPONNX(unittest.TestCase):
         optimizer = optim.Adam(model.parameters(), lr=0.001)
         scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
         
-        # Training parameters
         batch_size = 64
-        epochs = 3  # Use fewer epochs for testing
+        epochs = 3
         
         print("Training MLP model...")
         for epoch in range(epochs):
@@ -78,7 +75,7 @@ class TestCustomMLPONNX(unittest.TestCase):
             scheduler.step()
             print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/(min(10000, len(self.X_train))/batch_size):.4f}")
         
-        # Test the model accuracy of the trained model
+        # Test the model accuracy
         model.eval()
         correct = 0
         total = 0
@@ -120,13 +117,12 @@ class TestCustomMLPONNX(unittest.TestCase):
         # We still need a MLGen3 model structure, but weights will be loaded from ONNX
         layers = []
         for i in range(0, len(model.layers), 3):
-            # Add Linear layer
+            
             linear_layer = model.layers[i]
             weight = linear_layer.weight.detach().numpy()
             bias = linear_layer.bias.detach().numpy()
             layers.append(Linear(weight, bias))
             
-            # Add BatchNorm layer (if available)
             if i+1 < len(model.layers) and isinstance(model.layers[i+1], nn.BatchNorm1d):
                 bn_layer = model.layers[i+1]
                 weight = bn_layer.weight.detach().numpy()
@@ -136,7 +132,6 @@ class TestCustomMLPONNX(unittest.TestCase):
                 eps = bn_layer.eps
                 layers.append(BatchNorm(weight, bias, running_mean, running_var, eps))
             
-            # Add activation layer (if available)
             if i+2 < len(model.layers) and isinstance(model.layers[i+2], nn.ReLU):
                 output_shape = weight.shape[0]  # Output shape from previous linear layer
                 layers.append(Relu(output_shape))
