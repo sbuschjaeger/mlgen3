@@ -31,6 +31,10 @@ class LinuxStandalone(Materializer):
         self.filename = "model" if filename is None else filename
         self.compiler = compiler
         self.use_onnx = use_onnx
+        
+        # Set filename for implementations that need it
+        if hasattr(implementation, 'set_filename'):
+            implementation.set_filename(self.filename)
 
         # TODO Implement perf performance tests
         assert (
@@ -55,6 +59,17 @@ class LinuxStandalone(Materializer):
 
         if not os.path.isdir(self.path):
             os.makedirs(self.path)
+
+        # For MatQuant implementations, ensure filename is set before implementation
+        if hasattr(self.implementation, 'set_filename'):
+            self.implementation.set_filename(self.filename)
+            
+        # Re-implement if needed to ensure filename is used correctly
+        if hasattr(self.implementation, 'implement'):
+            self.implementation.implement()
+
+        # For MatQuant implementations, use the custom template
+        is_matquant = 'MatQuant' in self.implementation.__class__.__name__
 
         with open(os.path.join(self.path, self.filename + ".cpp"), "w") as f:
             f.write(self.beautify(self.implementation.code))
@@ -140,9 +155,11 @@ class LinuxStandalone(Materializer):
             self.measure_perf or self.measure_accuracy or self.measure_time
         ), "Cannot deploy model since no test code was generated for this implementation. Please set at-least on of the following arguments to true: measure_perf, measure_accuracy or measure_time"
 
-        # Select the appropriate makefile template based on whether ONNX is being used
+        # Select the appropriate makefile template based on whether ONNX is being used or if it's a MatQuant implementation
         if self.use_onnx:
             makefile_template = "linuxstandalone_makefile_onnx.template"
+        elif 'MatQuant' in self.implementation.__class__.__name__:
+            makefile_template = "linuxstandalone_makefile_mq.template"
         else:
             makefile_template = "linuxstandalone_makefile.template"
             
@@ -159,8 +176,20 @@ class LinuxStandalone(Materializer):
             f.write(makefile_str)
 
         if self.measure_time or self.measure_accuracy or self.measure_perf:
+            # Select the appropriate main template
+            if 'MatQuant' in self.implementation.__class__.__name__:
+                main_template = "linuxstandalone_main_mq.template"
+            else:
+                main_template = "linuxstandalone_main.template"
+                
+            main_str = (
+                files("mlgen3.materializer.cpp")
+                .joinpath(main_template)
+                .read_text()
+            )
+            
             with open(os.path.join(self.path, "main.cpp"), "w") as f:
-                f.write(self.beautify(self.generate_tests()))
+                f.write(self.beautify(self._generate_main_code(main_str)))
 
         # Handle different data formats
         if type(self.implementation.model.XTest) == pd.core.frame.DataFrame:
@@ -227,3 +256,61 @@ class LinuxStandalone(Materializer):
     def clean(self):
         if self.path is not None and os.path.exists(self.path):
             shutil.rmtree(self.path)
+
+    def _generate_main_code(self, main_template):
+        """Generate the main.cpp code from the template."""
+        start_measurement = ""
+        end_measurement = ""
+        measure_results = ""
+        print_measurements = ""
+
+        if self.measure_time:
+            start_measurement += (
+                "auto start = std::chrono::high_resolution_clock::now();"
+            )
+            end_measurement += """
+                auto end = std::chrono::high_resolution_clock::now();   
+                auto runtime = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count()) / (X.size() * repeat);
+            """
+
+        if self.measure_accuracy:
+            end_measurement += (
+                "float accuracy = static_cast<float>(matches) / X.size() * 100.f;"
+            )
+
+        if self.measure_time and not self.measure_accuracy:
+            measure_results = "return runtime;"
+            print_measurements = """
+                std::cout << "Latency: " << results << " [ms/elem]" << std::endl;
+            """
+        elif not self.measure_time and self.measure_accuracy:
+            measure_results = "return accuracy;"
+            print_measurements = (
+                """std::cout << "Accuracy: " << accuracy << " %" << std::endl;"""
+            )
+        elif self.measure_time and self.measure_accuracy:
+            measure_results = "return std::make_pair(accuracy, runtime);"
+            print_measurements = """
+                std::cout << "Accuracy: " << results.first << " %" << std::endl;
+                std::cout << "Latency: " << results.second << " [ms/elem]" << std::endl;
+            """
+
+        # TODO this is currently hard-coded. Remove LABEL_TYPE
+        typedefinitions = f"""
+            #include "{self.filename}.h"    
+            typedef {self.implementation.label_type} OUTPUT_TYPE;
+            typedef unsigned int LABEL_TYPE;
+            typedef {self.implementation.feature_type} FEATURE_TYPE;
+            """
+        label_position = ""
+        
+        main_str = (
+            main_template.replace("{start_measurement}", start_measurement)
+            .replace("{end_measurement}", end_measurement)
+            .replace("{measure_results}", measure_results)
+            .replace("{print_measurements}", print_measurements)
+            .replace("{typedefinitions}", typedefinitions)
+            .replace("{label_position}", label_position)
+        )
+
+        return main_str

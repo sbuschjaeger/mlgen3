@@ -12,3 +12,8 @@ README_gen.md
 generated_code/*
 dist/*
 onnx2tflite/*
+
+matquant.py
+config_vgg8_mq842.yaml
+
+.github/copilot-instructions.md
