@@ -1,3 +1,32 @@
+#
+
+# 1. C++ Independence from PyTorch Runtime
+# The C++ implementation of MatQuant needs to run independently of the PyTorch ecosystem. While PyTorch offers a C++ API (libtorch), it:
+# Adds significant overhead (100+ MB) to the deployment
+# Introduces complex dependencies
+# May not support custom operations like bit slicing efficiently
+
+# 2. Direct Memory Access for Bit Slicing
+# The MatQuant algorithm requires direct bit manipulation for its core slicing operation:
+# Loading raw binary files gives us direct control over the memory representation needed for these operations.
+
+# 3. Parameter-Specific Quantization
+# Each parameter (weight matrix, bias vector) can have different quantization characteristics:
+# Different scaling factors
+# Different zero points
+# Different optimal bit-width configurations
+# Individual binary files allow the C++ code to load and process each parameter with its specific quantization requirements.
+
+# 4. Simplified Implementation
+# Reading binary files in C++ is straightforward and requires no external libraries:
+# This approach is significantly simpler than parsing complex PyTorch model structures.
+
+# 5. Cross-Platform Compatibility
+# Binary files use standard formats that work across different platforms and architectures, making deployment more reliable and predictable.
+
+#
+
+
 import numpy as np
 import os
 from mlgen3.implementations.implementation import Implementation
