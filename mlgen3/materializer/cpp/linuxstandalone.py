@@ -155,9 +155,11 @@ class LinuxStandalone(Materializer):
             self.measure_perf or self.measure_accuracy or self.measure_time
         ), "Cannot deploy model since no test code was generated for this implementation. Please set at-least on of the following arguments to true: measure_perf, measure_accuracy or measure_time"
 
-        # Select the appropriate makefile template based on whether ONNX is being used or if it's a MatQuant implementation
+        # Select the appropriate makefile template based on implementation type
         if self.use_onnx:
             makefile_template = "linuxstandalone_makefile_onnx.template"
+        elif 'MatQuantPT' in self.implementation.__class__.__name__:
+            makefile_template = "linuxstandalone_makefile_mq_pt.template"
         elif 'MatQuant' in self.implementation.__class__.__name__:
             makefile_template = "linuxstandalone_makefile_mq.template"
         else:
