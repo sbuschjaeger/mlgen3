@@ -230,14 +230,14 @@ class LinuxStandalone(Materializer):
             print(f"stdout: \n{make_res.stdout}")
             print(f"stderr: \n{make_res.stderr}")
         run_res = subprocess.run(
-            f"cd {self.path} && ./{self.filename} testing.csv 2",
+            f"cd {self.path} && ./{self.filename} testing.csv 1",
             capture_output=True,
             text=True,
             shell=True,
         )
 
         if verbose:
-            print(f"cd {self.path} && ./{self.filename} testing.csv 2")
+            print(f"cd {self.path} && ./{self.filename} testing.csv 1")
             print(f"stdout: \n{run_res.stdout}")
             print(f"stderr: \n{run_res.stderr}")
 

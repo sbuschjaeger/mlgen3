@@ -100,7 +100,7 @@ criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
 batch_size = 64
-epochs = 1
+epochs = 3
 
 # Training loop
 print(f"\nTraining MLP with MatQuant for {epochs} epochs...")
@@ -264,14 +264,14 @@ def extract_mlgen3_model(pytorch_model):
     mlgen_model = NeuralNet.from_layers(layers)
     return mlgen_model
 
-def generate_uniform_model(bit_width, extracted_models, X_test, y_test):
+def generate_uniform_model(bit_width, mq_model, X_test, y_test):
     """Generate and deploy a uniform bit-width model with 8-bit storage and runtime slicing"""
     print(f"\nGenerating C++ code for {bit_width}-bit uniform model with 8-bit storage and runtime slicing...")
     from mlgen3.implementations.neuralnet.cpp.matquant_pt import MatQuantPT
     from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
-    
-    model = extracted_models[bit_width]
-    mlgen_model = extract_mlgen3_model(model)
+
+    mq_model_8bit = mq_model.extract_model(8)
+    mlgen_model = extract_mlgen3_model(mq_model_8bit)
     mlgen_model.XTest = X_test
     mlgen_model.YTest = y_test
 
@@ -318,8 +318,10 @@ def generate_mix_model(mix_config, mq_model, X_test, y_test):
     from mlgen3.implementations.neuralnet.cpp.matquant_pt import MatQuantPT
     from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
     
-    mix_model = mq_model.mix_and_match(mix_config)
-    mlgen_model = extract_mlgen3_model(mix_model)
+    # mix_model = mq_model.mix_and_match(mix_config)
+    mq_model_8bit = mq_model.extract_model(8)
+    # mlgen_model = extract_mlgen3_model(mix_model)
+    mlgen_model = extract_mlgen3_model(mq_model_8bit)
     mlgen_model.XTest = X_test
     mlgen_model.YTest = y_test
 
@@ -380,7 +382,7 @@ results = {}
 if args.uniform:
     for bit_width in args.uniform:
         if bit_width in extracted_models:
-            results[f"uniform_{bit_width}bit"] = generate_uniform_model(bit_width, extracted_models, X_test, y_test)
+            results[f"uniform_{bit_width}bit"] = generate_uniform_model(bit_width, mq_model, X_test, y_test)
         else:
             print(f"Warning: No {bit_width}-bit model available. Available bit-widths: {list(extracted_models.keys())}")
 
@@ -408,7 +410,7 @@ if args.custom_mix:
 # If no arguments provided, generate a default 8-bit model
 if not args.uniform and not args.mix and not args.custom_mix:
     print("No specific models requested. Generating default 8-bit model.")
-    results["uniform_8bit"] = generate_uniform_model(8, extracted_models, X_test, y_test)
+    results["uniform_8bit"] = generate_uniform_model(8, mq_model, X_test, y_test)
 
 print("\nMatQuant PyTorch implementation complete!")
 print(f"Generated models: {list(results.keys())}")
