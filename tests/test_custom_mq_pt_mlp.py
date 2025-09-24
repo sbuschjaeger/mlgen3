@@ -265,8 +265,8 @@ def extract_mlgen3_model(pytorch_model):
     return mlgen_model
 
 def generate_uniform_model(bit_width, extracted_models, X_test, y_test):
-    """Generate and deploy a uniform bit-width model with PyTorch binary loading"""
-    print(f"\nGenerating C++ code for {bit_width}-bit uniform model with PyTorch binary loading...")
+    """Generate and deploy a uniform bit-width model with 8-bit storage and runtime slicing"""
+    print(f"\nGenerating C++ code for {bit_width}-bit uniform model with 8-bit storage and runtime slicing...")
     from mlgen3.implementations.neuralnet.cpp.matquant_pt import MatQuantPT
     from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
     
@@ -306,15 +306,15 @@ def generate_uniform_model(bit_width, extracted_models, X_test, y_test):
     materializer.materialize(output_path)
     print(f"Model materialized at: {output_path}")
     materializer.deploy()
-    print(f"{bit_width}-bit model deployed successfully.")
+    print(f"{bit_width}-bit model deployed successfully (using 8-bit storage with runtime slicing).")
     results = materializer.run(verbose=True)
     print(f"{bit_width}-bit model results: {results}")
     
     return results
 
 def generate_mix_model(mix_config, mq_model, X_test, y_test):
-    """Generate and deploy a mix-and-match model with PyTorch binary loading"""
-    print(f"\nGenerating C++ code for mix-and-match model with PyTorch binary loading...")
+    """Generate and deploy a mix-and-match model with 8-bit storage and runtime slicing"""
+    print(f"\nGenerating C++ code for mix-and-match model with 8-bit storage and runtime slicing...")
     from mlgen3.implementations.neuralnet.cpp.matquant_pt import MatQuantPT
     from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
     
@@ -357,7 +357,7 @@ def generate_mix_model(mix_config, mq_model, X_test, y_test):
     materializer.materialize(output_path)
     print(f"Model materialized at: {output_path}")
     materializer.deploy()
-    print("Mix-and-match model deployed successfully.")
+    print("Mix-and-match model deployed successfully (using 8-bit storage with runtime slicing).")
     results = materializer.run(verbose=True)
     print(f"Mix-and-match model results: {results}")
     

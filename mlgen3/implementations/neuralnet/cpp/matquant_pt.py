@@ -1,34 +1,6 @@
-#
-
-# 1. C++ Independence from PyTorch Runtime
-# The C++ implementation of MatQuant needs to run independently of the PyTorch ecosystem. While PyTorch offers a C++ API (libtorch), it:
-# Adds significant overhead (100+ MB) to the deployment
-# Introduces complex dependencies
-# May not support custom operations like bit slicing efficiently
-
-# 2. Direct Memory Access for Bit Slicing
-# The MatQuant algorithm requires direct bit manipulation for its core slicing operation:
-# Loading raw binary files gives us direct control over the memory representation needed for these operations.
-
-# 3. Parameter-Specific Quantization
-# Each parameter (weight matrix, bias vector) can have different quantization characteristics:
-# Different scaling factors
-# Different zero points
-# Different optimal bit-width configurations
-# Individual binary files allow the C++ code to load and process each parameter with its specific quantization requirements.
-
-# 4. Simplified Implementation
-# Reading binary files in C++ is straightforward and requires no external libraries:
-# This approach is significantly simpler than parsing complex PyTorch model structures.
-
-# 5. Cross-Platform Compatibility
-# Binary files use standard formats that work across different platforms and architectures, making deployment more reliable and predictable.
-
-#
-
-
 import numpy as np
 import os
+import struct
 from mlgen3.implementations.implementation import Implementation
 from mlgen3.models.nn.activations import Sign, Sigmoid, Relu, Step
 from mlgen3.models.nn.linear import Linear
@@ -38,6 +10,7 @@ class MatQuantPT(Implementation):
     """
     Implementation of Matryoshka Quantization for neural networks using PyTorch model files.
     This class generates C++ code for inference with MatQuant models loaded from binary files.
+    All models are stored as 8-bit quantized values, with bit-slicing performed at runtime.
     """
     
     def __init__(self, model, feature_type="float", label_type="float", internal_type="float", 
@@ -74,29 +47,91 @@ class MatQuantPT(Implementation):
     def extract_model_parameters(self):
         """
         Extract model parameters and save them as binary files.
-        Each layer's weights and biases will be saved separately.
+        All parameters are stored as 8-bit quantized values along with quantization parameters.
+        Each layer's weights and biases will be saved separately, along with quantization information.
         """
         os.makedirs(self.model_binary_dir, exist_ok=True)
         
         # Extract parameters from each layer and save to binary files
         for lid, layer in enumerate(self.model.layers):
             if hasattr(layer, 'weight'):
-                # Save weight
+                # Get original weight values
                 weight = layer.weight.astype(np.float32)
-                weight.tofile(os.path.join(self.model_binary_dir, f"layer_{lid}_weight.bin"))
+                
+                # Quantize to 8-bit
+                qparams = self._quantize_to_8bit(weight)
+                weight_8bit = qparams["quantized_values"]
+                
+                # Save quantized weights
+                weight_8bit.astype(np.uint8).tofile(os.path.join(self.model_binary_dir, f"layer_{lid}_weight.bin"))
+                
+                # Save quantization parameters (scale, zero_point)
+                with open(os.path.join(self.model_binary_dir, f"layer_{lid}_weight_qparams.bin"), 'wb') as f:
+                    f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
                 
             if hasattr(layer, 'bias'):
-                # Save bias
+                # Get original bias values
                 bias = layer.bias.astype(np.float32)
-                bias.tofile(os.path.join(self.model_binary_dir, f"layer_{lid}_bias.bin"))
+                
+                # Quantize to 8-bit
+                qparams = self._quantize_to_8bit(bias)
+                bias_8bit = qparams["quantized_values"]
+                
+                # Save quantized bias
+                bias_8bit.astype(np.uint8).tofile(os.path.join(self.model_binary_dir, f"layer_{lid}_bias.bin"))
+                
+                # Save quantization parameters (scale, zero_point)
+                with open(os.path.join(self.model_binary_dir, f"layer_{lid}_bias_qparams.bin"), 'wb') as f:
+                    f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
                 
             # Save BatchNorm parameters if applicable
             if isinstance(layer, BatchNorm):
-                layer.scale.astype(np.float32).tofile(os.path.join(self.model_binary_dir, f"layer_{lid}_scale.bin"))
-                layer.bias.astype(np.float32).tofile(os.path.join(self.model_binary_dir, f"layer_{lid}_bias.bin"))
+                # Scale
+                scale = layer.scale.astype(np.float32)
+                qparams = self._quantize_to_8bit(scale)
+                scale_8bit = qparams["quantized_values"]
+                scale_8bit.astype(np.uint8).tofile(os.path.join(self.model_binary_dir, f"layer_{lid}_scale.bin"))
+                with open(os.path.join(self.model_binary_dir, f"layer_{lid}_scale_qparams.bin"), 'wb') as f:
+                    f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
+                
+                # Bias
+                bias = layer.bias.astype(np.float32)
+                qparams = self._quantize_to_8bit(bias)
+                bias_8bit = qparams["quantized_values"]
+                bias_8bit.astype(np.uint8).tofile(os.path.join(self.model_binary_dir, f"layer_{lid}_bn_bias.bin"))
+                with open(os.path.join(self.model_binary_dir, f"layer_{lid}_bn_bias_qparams.bin"), 'wb') as f:
+                    f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
+                
+    def _quantize_to_8bit(self, values):
+        """
+        Quantize values to 8-bit representation.
+        
+        Args:
+            values: NumPy array of values to quantize
+            
+        Returns:
+            dict with quantized_values, scale, and zero_point
+        """
+        # Find min and max values
+        val_min = values.min()
+        val_max = values.max()
+        
+        # Calculate scaling factor and zero point
+        scale = (val_max - val_min) / 255.0 if val_min != val_max else 1.0
+        zero_point = -val_min / scale if scale != 0 else 0.0
+        
+        # Quantize the values
+        quantized = np.round(values / scale + zero_point)
+        quantized = np.clip(quantized, 0, 255).astype(np.uint8)
+        
+        return {
+            "quantized_values": quantized,
+            "scale": scale,
+            "zero_point": zero_point
+        }
                 
     def implement(self):
-        """Implement the MatQuant model in C++ with binary file loading."""
+        """Implement the MatQuant model in C++ with binary file loading and runtime bit-slicing."""
         # Extract model parameters to binary files if model_binary_dir is set
         if self.model_binary_dir:
             self.extract_model_parameters()
@@ -151,20 +186,37 @@ class MatQuantPT(Implementation):
         
         for lid, layer in enumerate(self.model.layers):
             if isinstance(layer, Linear):
+                # Allocate arrays for original values
                 alloc += f"static float layer_{lid}[{layer.output_shape}];\n"
-                alloc += f"static float layer_{lid}_weight[{layer.output_shape}][{layer.input_shape}];\n"
-                alloc += f"static float layer_{lid}_bias[{layer.output_shape}];\n"
+                
+                # Allocate arrays for 8-bit quantized values and quantization parameters
+                alloc += f"static uint8_t layer_{lid}_weight_q8[{layer.output_shape}][{layer.input_shape}];\n"
+                alloc += f"static float layer_{lid}_weight_scale;\n"
+                alloc += f"static float layer_{lid}_weight_zero_point;\n"
+                
+                alloc += f"static uint8_t layer_{lid}_bias_q8[{layer.output_shape}];\n"
+                alloc += f"static float layer_{lid}_bias_scale;\n"
+                alloc += f"static float layer_{lid}_bias_zero_point;\n"
+                
             elif isinstance(layer, BatchNorm):
                 alloc += f"static float layer_{lid}[{layer.output_shape}];\n"
-                alloc += f"static float layer_{lid}_scale[{layer.output_shape}];\n"
-                alloc += f"static float layer_{lid}_bias[{layer.output_shape}];\n"
+                
+                # Allocate arrays for 8-bit quantized values and quantization parameters
+                alloc += f"static uint8_t layer_{lid}_scale_q8[{layer.output_shape}];\n"
+                alloc += f"static float layer_{lid}_scale_scale;\n"
+                alloc += f"static float layer_{lid}_scale_zero_point;\n"
+                
+                alloc += f"static uint8_t layer_{lid}_bias_q8[{layer.output_shape}];\n"
+                alloc += f"static float layer_{lid}_bias_scale;\n"
+                alloc += f"static float layer_{lid}_bias_zero_point;\n"
+                
             elif isinstance(layer, (Relu, Sigmoid, Sign, Step)):
                 alloc += f"static float layer_{lid}[{layer.output_shape}];\n"
                 
         return alloc
         
     def _generate_binary_utils(self):
-        """Generate C++ code for binary file loading utilities."""
+        """Generate C++ code for binary file loading utilities and bit slicing."""
         return """#include <cmath>
 #include <limits>
 #include <fstream>
@@ -203,65 +255,60 @@ bool load_binary_data(const std::string& filename, std::vector<T>& data, size_t 
     return true;
 }
 
-// Function to quantize data (MinMax quantization)
-template <typename T>
-std::pair<std::vector<int>, std::pair<T, T>> quantize(const std::vector<T>& data, int bits) {
-    // Find min and max values
-    T data_min = std::numeric_limits<T>::max();
-    T data_max = std::numeric_limits<T>::lowest();
-    
-    for (const auto& val : data) {
-        data_min = std::min(data_min, val);
-        data_max = std::max(data_max, val);
+// Function to load quantization parameters (scale, zero_point)
+inline bool load_quantization_params(const std::string& filename, float& scale, float& zero_point) {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return false;
     }
     
-    // Calculate scaling factor and zero point
-    T scale = (data_max - data_min) / ((1 << bits) - 1);
-    T zero_point = (scale != 0) ? (-data_min / scale) : 0;
+    // Read scale and zero_point (2 floats = 8 bytes)
+    file.read(reinterpret_cast<char*>(&scale), sizeof(float));
+    file.read(reinterpret_cast<char*>(&zero_point), sizeof(float));
     
-    // Quantize the data
-    std::vector<int> quantized(data.size());
-    for (size_t i = 0; i < data.size(); ++i) {
-        int q = std::round(data[i] / scale + zero_point);
-        quantized[i] = std::max(0, std::min(q, (1 << bits) - 1));
+    if (!file) {
+        std::cerr << "Error: Failed to read quantization parameters" << std::endl;
+        return false;
     }
     
-    return {quantized, {scale, zero_point}};
+    return true;
 }
 
-// Function to dequantize data
-template <typename T>
-std::vector<T> dequantize(const std::vector<int>& quantized, T scale, T zero_point) {
-    std::vector<T> dequantized(quantized.size());
-    for (size_t i = 0; i < quantized.size(); ++i) {
-        dequantized[i] = (quantized[i] - zero_point) * scale;
-    }
-    return dequantized;
-}
-
-// Function to slice bits for MatQuant
-inline std::vector<int> slice_bits(const std::vector<int>& quantized, int original_bits, int target_bits, bool rounding = true) {
-    std::vector<int> sliced(quantized.size());
+// Function to perform bit slicing at runtime
+inline std::vector<uint8_t> slice_bits(const std::vector<uint8_t>& quantized, int original_bits, int target_bits) {
+    std::vector<uint8_t> sliced(quantized.size());
     int shift_bits = original_bits - target_bits;
     
     for (size_t i = 0; i < quantized.size(); ++i) {
-        if (rounding && shift_bits > 0) {
+        // Perform bit slicing with rounding
+        if (shift_bits > 0) {
             // Get the bit at position target_bits+1 for rounding
             int round_bit = (quantized[i] >> (shift_bits - 1)) & 1;
             int floor_val = quantized[i] >> shift_bits;
             sliced[i] = round_bit ? (floor_val + 1) : floor_val;
+            
+            // Clamp to ensure values are within the target bit-width range
+            sliced[i] = std::min(sliced[i], static_cast<uint8_t>((1 << target_bits) - 1));
+            
+            // Scale back to original range
+            sliced[i] = sliced[i] << shift_bits;
         } else {
-            sliced[i] = quantized[i] >> shift_bits;
+            sliced[i] = quantized[i];
         }
-        
-        // Clamp to ensure values are within the target bit-width range
-        sliced[i] = std::max(0, std::min(sliced[i], (1 << target_bits) - 1));
-        
-        // Scale back to original range
-        sliced[i] = sliced[i] << shift_bits;
     }
     
     return sliced;
+}
+
+// Function to dequantize values
+template <typename T>
+std::vector<float> dequantize(const std::vector<T>& quantized, float scale, float zero_point) {
+    std::vector<float> dequantized(quantized.size());
+    for (size_t i = 0; i < quantized.size(); ++i) {
+        dequantized[i] = (static_cast<float>(quantized[i]) - zero_point) * scale;
+    }
+    return dequantized;
 }"""
 
     def _generate_define_statements(self):
@@ -301,59 +348,74 @@ inline std::vector<int> slice_bits(const std::vector<int>& quantized, int origin
             define_statements += f"constexpr int LAYER_BITS[NUM_LAYERS] = {{{', '.join([str(self.target_bits)] * len(self.model.layers))}}};\n"
             
         define_statements += f"#define TARGET_BITS {self.target_bits}\n"
+        define_statements += "#define STORAGE_BITS 8\n"  # Always store as 8-bit
         return define_statements
 
     def _generate_load_model_function(self):
-        """Generate C++ code for loading model parameters from binary files."""
+        """Generate C++ code for loading model parameters from binary files with runtime bit slicing."""
         load_func = ""
         
         for lid, layer in enumerate(self.model.layers):
             if isinstance(layer, Linear):
                 load_func += f"""
-                    // Load weights and bias for Linear layer {lid}
+                    // Load weights and quantization parameters for Linear layer {lid}
                     {{
-                        std::vector<float> layer_{lid}_weight_data;
-                        bool weight_success = load_binary_data<float>("mq_pt_model_binary/layer_{lid}_weight.bin", 
-                                                                    layer_{lid}_weight_data, 
-                                                                    {layer.output_shape} * {layer.input_shape});
+                        // Load quantized weights
+                        std::vector<uint8_t> layer_{lid}_weight_data;
+                        bool weight_success = load_binary_data<uint8_t>("mq_pt_model_binary/layer_{lid}_weight.bin", 
+                                                                      layer_{lid}_weight_data, 
+                                                                      {layer.output_shape} * {layer.input_shape});
+                        
+                        // Load quantization parameters
+                        bool qparam_success = load_quantization_params("mq_pt_model_binary/layer_{lid}_weight_qparams.bin",
+                                                                     layer_{lid}_weight_scale, 
+                                                                     layer_{lid}_weight_zero_point);
                         
                         // If weight loading failed, set default values
-                        if (!weight_success) {{
+                        if (!weight_success || !qparam_success) {{
                             success = false;
-                            std::cerr << "Failed to load weights for layer {lid}" << std::endl;
+                            std::cerr << "Failed to load weights or parameters for layer {lid}" << std::endl;
                             // Set default values
+                            layer_{lid}_weight_scale = 1.0f;
+                            layer_{lid}_weight_zero_point = 0.0f;
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
                                 for (int j = 0; j < {layer.input_shape}; ++j) {{
-                                    layer_{lid}_weight[i][j] = 0.0f;
+                                    layer_{lid}_weight_q8[i][j] = 0;
                                 }}
                             }}
                         }} else {{
                             // Reshape flat vector into 2D array
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
                                 for (int j = 0; j < {layer.input_shape}; ++j) {{
-                                    layer_{lid}_weight[i][j] = layer_{lid}_weight_data[i * {layer.input_shape} + j];
+                                    layer_{lid}_weight_q8[i][j] = layer_{lid}_weight_data[i * {layer.input_shape} + j];
                                 }}
                             }}
                         }}
                         
-                        // Load bias
-                        std::vector<float> layer_{lid}_bias_data;
-                        bool bias_success = load_binary_data<float>("mq_pt_model_binary/layer_{lid}_bias.bin", 
-                                                                layer_{lid}_bias_data, 
-                                                                {layer.output_shape});
+                        // Load quantized bias and parameters
+                        std::vector<uint8_t> layer_{lid}_bias_data;
+                        bool bias_success = load_binary_data<uint8_t>("mq_pt_model_binary/layer_{lid}_bias.bin", 
+                                                                   layer_{lid}_bias_data, 
+                                                                   {layer.output_shape});
+                        
+                        bool bias_qparam_success = load_quantization_params("mq_pt_model_binary/layer_{lid}_bias_qparams.bin",
+                                                                         layer_{lid}_bias_scale, 
+                                                                         layer_{lid}_bias_zero_point);
                         
                         // If bias loading failed, set default values
-                        if (!bias_success) {{
+                        if (!bias_success || !bias_qparam_success) {{
                             success = false;
-                            std::cerr << "Failed to load bias for layer {lid}" << std::endl;
+                            std::cerr << "Failed to load bias or parameters for layer {lid}" << std::endl;
                             // Set default values
+                            layer_{lid}_bias_scale = 1.0f;
+                            layer_{lid}_bias_zero_point = 0.0f;
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
-                                layer_{lid}_bias[i] = 0.0f;
+                                layer_{lid}_bias_q8[i] = 0;
                             }}
                         }} else {{
                             // Copy bias data
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
-                                layer_{lid}_bias[i] = layer_{lid}_bias_data[i];
+                                layer_{lid}_bias_q8[i] = layer_{lid}_bias_data[i];
                             }}
                         }}
                     }}"""
@@ -361,44 +423,57 @@ inline std::vector<int> slice_bits(const std::vector<int>& quantized, int origin
                 load_func += f"""
                     // Load scale and bias for BatchNorm layer {lid}
                     {{
-                        std::vector<float> layer_{lid}_scale_data;
-                        bool scale_success = load_binary_data<float>("mq_pt_model_binary/layer_{lid}_scale.bin", 
-                                                                layer_{lid}_scale_data, 
-                                                                {layer.output_shape});
+                        // Load quantized scale and parameters
+                        std::vector<uint8_t> layer_{lid}_scale_data;
+                        bool scale_success = load_binary_data<uint8_t>("mq_pt_model_binary/layer_{lid}_scale.bin", 
+                                                                    layer_{lid}_scale_data, 
+                                                                    {layer.output_shape});
+                        
+                        bool scale_qparam_success = load_quantization_params("mq_pt_model_binary/layer_{lid}_scale_qparams.bin",
+                                                                         layer_{lid}_scale_scale, 
+                                                                         layer_{lid}_scale_zero_point);
                         
                         // If scale loading failed, set default values
-                        if (!scale_success) {{
+                        if (!scale_success || !scale_qparam_success) {{
                             success = false;
-                            std::cerr << "Failed to load scale for BatchNorm layer {lid}" << std::endl;
+                            std::cerr << "Failed to load scale or parameters for BatchNorm layer {lid}" << std::endl;
                             // Set default values
+                            layer_{lid}_scale_scale = 1.0f;
+                            layer_{lid}_scale_zero_point = 0.0f;
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
-                                layer_{lid}_scale[i] = 1.0f;
+                                layer_{lid}_scale_q8[i] = 0;
                             }}
                         }} else {{
                             // Copy scale data
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
-                                layer_{lid}_scale[i] = layer_{lid}_scale_data[i];
+                                layer_{lid}_scale_q8[i] = layer_{lid}_scale_data[i];
                             }}
                         }}
                         
-                        // Load bias
-                        std::vector<float> layer_{lid}_bias_data;
-                        bool bias_success = load_binary_data<float>("mq_pt_model_binary/layer_{lid}_bias.bin", 
-                                                                layer_{lid}_bias_data, 
-                                                                {layer.output_shape});
+                        // Load quantized bias and parameters
+                        std::vector<uint8_t> layer_{lid}_bias_data;
+                        bool bias_success = load_binary_data<uint8_t>("mq_pt_model_binary/layer_{lid}_bn_bias.bin", 
+                                                                   layer_{lid}_bias_data, 
+                                                                   {layer.output_shape});
+                        
+                        bool bias_qparam_success = load_quantization_params("mq_pt_model_binary/layer_{lid}_bn_bias_qparams.bin",
+                                                                         layer_{lid}_bias_scale, 
+                                                                         layer_{lid}_bias_zero_point);
                         
                         // If bias loading failed, set default values
-                        if (!bias_success) {{
+                        if (!bias_success || !bias_qparam_success) {{
                             success = false;
-                            std::cerr << "Failed to load bias for BatchNorm layer {lid}" << std::endl;
+                            std::cerr << "Failed to load bias or parameters for BatchNorm layer {lid}" << std::endl;
                             // Set default values
+                            layer_{lid}_bias_scale = 1.0f;
+                            layer_{lid}_bias_zero_point = 0.0f;
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
-                                layer_{lid}_bias[i] = 0.0f;
+                                layer_{lid}_bias_q8[i] = 0;
                             }}
                         }} else {{
                             // Copy bias data
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
-                                layer_{lid}_bias[i] = layer_{lid}_bias_data[i];
+                                layer_{lid}_bias_q8[i] = layer_{lid}_bias_data[i];
                             }}
                         }}
                     }}"""
@@ -406,11 +481,8 @@ inline std::vector<int> slice_bits(const std::vector<int>& quantized, int origin
         return load_func
     
     def _generate_predict_function(self):
-        """Generate the C++ prediction function with all layers."""
-        code = ""
-        
-        # First, call the load model function at the beginning
-        code += """
+        """Generate the C++ prediction function with all layers and runtime bit slicing."""
+        code = """
         std::vector<float> predict(std::vector<float> &x) {
             // Load model parameters if not loaded already
             static bool model_loaded = false;
@@ -428,7 +500,7 @@ inline std::vector<int> slice_bits(const std::vector<int>& quantized, int origin
                 input_var = "x"
             else:
                 input_var = f"layer_{lid-1}"
-                
+            
             # Get the bit-width for this layer
             if self.mix_and_match_config:
                 layer_name = f"model.{lid}.weight" if hasattr(layer, 'weight') else f"model.{lid}"
@@ -441,33 +513,24 @@ inline std::vector<int> slice_bits(const std::vector<int>& quantized, int origin
             if isinstance(layer, Linear):
                 code += f"""
                 // Linear layer {lid} with {layer_bits}-bit weights
-                // Convert weights to vector for quantization
-                std::vector<float> weight_vec_{lid};
+                // Slice the 8-bit weights to {layer_bits}-bit precision for this layer
                 for (int i = 0; i < {layer.output_shape}; ++i) {{
+                    // Process bias with bit-slicing
+                    std::vector<uint8_t> bias_q8(1);
+                    bias_q8[0] = layer_{lid}_bias_q8[i];
+                    std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, STORAGE_BITS, {layer_bits});
+                    
+                    // Dequantize the bias
+                    std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{lid}_bias_scale, layer_{lid}_bias_zero_point);
+                    layer_{lid}[i] = dequant_bias[0];
+                    
+                    // Process weights with bit-slicing and matrix multiplication
                     for (int j = 0; j < {layer.input_shape}; ++j) {{
-                        weight_vec_{lid}.push_back(layer_{lid}_weight[i][j]);
-                    }}
-                }}
-                
-                // Quantize weights to {self.max_bits} bits then slice to {layer_bits} bits
-                auto [quantized_weights_{lid}, qparams_{lid}] = quantize(weight_vec_{lid}, {self.max_bits});
-                auto sliced_weights_{lid} = slice_bits(quantized_weights_{lid}, {self.max_bits}, {layer_bits});
-                auto dequant_weights_{lid} = dequantize(sliced_weights_{lid}, qparams_{lid}.first, qparams_{lid}.second);
-                
-                // Quantize bias
-                std::vector<float> bias_vec_{lid}({layer.output_shape});
-                for (int i = 0; i < {layer.output_shape}; ++i) {{
-                    bias_vec_{lid}[i] = layer_{lid}_bias[i];
-                }}
-                auto [quantized_bias_{lid}, bparams_{lid}] = quantize(bias_vec_{lid}, {self.max_bits});
-                auto sliced_bias_{lid} = slice_bits(quantized_bias_{lid}, {self.max_bits}, {layer_bits});
-                auto dequant_bias_{lid} = dequantize(sliced_bias_{lid}, bparams_{lid}.first, bparams_{lid}.second);
-                
-                // Apply linear transformation
-                for (int i = 0; i < {layer.output_shape}; ++i) {{
-                    layer_{lid}[i] = dequant_bias_{lid}[i];
-                    for (int j = 0; j < {layer.input_shape}; ++j) {{
-                        layer_{lid}[i] += dequant_weights_{lid}[i * {layer.input_shape} + j] * {input_var}[j];
+                        std::vector<uint8_t> weight_q8(1);
+                        weight_q8[0] = layer_{lid}_weight_q8[i][j];
+                        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, STORAGE_BITS, {layer_bits});
+                        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{lid}_weight_scale, layer_{lid}_weight_zero_point);
+                        layer_{lid}[i] += dequant_weight[0] * {input_var}[j];
                     }}
                 }}
                 """
@@ -475,7 +538,20 @@ inline std::vector<int> slice_bits(const std::vector<int>& quantized, int origin
                 code += f"""
                 // BatchNorm layer {lid}
                 for (int i = 0; i < {layer.output_shape}; ++i) {{
-                    layer_{lid}[i] = {input_var}[i] * layer_{lid}_scale[i] + layer_{lid}_bias[i];
+                    // Slice and dequantize scale
+                    std::vector<uint8_t> scale_q8(1);
+                    scale_q8[0] = layer_{lid}_scale_q8[i];
+                    std::vector<uint8_t> sliced_scale = slice_bits(scale_q8, STORAGE_BITS, {layer_bits});
+                    std::vector<float> dequant_scale = dequantize(sliced_scale, layer_{lid}_scale_scale, layer_{lid}_scale_zero_point);
+                    
+                    // Slice and dequantize bias
+                    std::vector<uint8_t> bias_q8(1);
+                    bias_q8[0] = layer_{lid}_bias_q8[i];
+                    std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, STORAGE_BITS, {layer_bits});
+                    std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{lid}_bias_scale, layer_{lid}_bias_zero_point);
+                    
+                    // Apply BatchNorm
+                    layer_{lid}[i] = {input_var}[i] * dequant_scale[0] + dequant_bias[0];
                 }}
                 """
             elif isinstance(layer, Relu):
