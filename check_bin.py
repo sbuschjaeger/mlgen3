@@ -93,7 +93,7 @@ def analyze_bin_files(directory):
 if __name__ == "__main__":
     # Path to the directory containing binary files
     # bin_dir = "generated_code/matquant_pt_mnist/uniform_4bit/mq_pt_model_binary"
-    bin_dir = "generated_code/matquant_pt_vgg4/uniform_8bit/mq_pt_vgg_binary"
+    bin_dir = "generated_code/matquant_pt_vgg4/uniform_8bit/mq_pt_model_binary"
     
     if os.path.exists(bin_dir):
         print(f"Analyzing binary files in {bin_dir}...\n")

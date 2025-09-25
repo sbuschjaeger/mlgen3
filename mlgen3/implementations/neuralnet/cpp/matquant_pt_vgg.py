@@ -57,7 +57,7 @@ class MatQuantPT_VGG(Implementation):
         else:
             raise ValueError("Model must have state_dict attribute")
         
-        print(f"Extracting model parameters for layers: {layer_indices}")
+        print(f"\nExtracting model parameters for layers: {layer_indices}")
         
         for layer_idx in layer_indices:
             # Process weights
@@ -150,7 +150,7 @@ class MatQuantPT_VGG(Implementation):
             else:
                 print(f"Warning: Bias key {bias_key} not found in model state")
     
-        print(f"All model parameters extracted and saved to {self.model_binary_dir}")
+        print(f"\nAll model parameters extracted and saved to {self.model_binary_dir}\n")
     
     def implement(self):
         """Implement the MatQuant PyTorch VGG model in C++."""
@@ -195,6 +195,9 @@ class MatQuantPT_VGG(Implementation):
         
         # Generate layer implementations
         layer_implementations = self._generate_layer_implementations(layer_types)
+        
+        # Get the binary directory name without the full path (for relative paths in C++)
+        binary_dir_name = os.path.basename(self.model_binary_dir)
         
         # Combine everything into the complete implementation
         self.code = f"""
@@ -247,43 +250,43 @@ class MatQuantPT_VGG(Implementation):
                 static bool files_loaded = false;
                 if (!files_loaded) {{
                     // Load weights for Conv1 (layer 0)
-                    load_binary_data("{self.model_binary_dir}/layer_0_weight.bin", layer_0_weight_q8, 64*1*3*3);
-                    load_quantization_params("{self.model_binary_dir}/layer_0_weight_qparams.bin", 
+                    load_binary_data("{binary_dir_name}/layer_0_weight.bin", layer_0_weight_q8, 64*1*3*3);
+                    load_quantization_params("{binary_dir_name}/layer_0_weight_qparams.bin", 
                                              layer_0_weight_scale, layer_0_weight_zero_point);
                     
                     // Load bias for Conv1
-                    load_binary_data("{self.model_binary_dir}/layer_0_bias.bin", layer_0_bias_q8, 64);
-                    load_quantization_params("{self.model_binary_dir}/layer_0_bias_qparams.bin", 
+                    load_binary_data("{binary_dir_name}/layer_0_bias.bin", layer_0_bias_q8, 64);
+                    load_quantization_params("{binary_dir_name}/layer_0_bias_qparams.bin", 
                                             layer_0_bias_scale, layer_0_bias_zero_point);
                     
                     // Load weights for Conv2 (layer 4)
-                    load_binary_data("{self.model_binary_dir}/layer_4_weight.bin", layer_4_weight_q8, 64*64*3*3);
-                    load_quantization_params("{self.model_binary_dir}/layer_4_weight_qparams.bin", 
+                    load_binary_data("{binary_dir_name}/layer_4_weight.bin", layer_4_weight_q8, 64*64*3*3);
+                    load_quantization_params("{binary_dir_name}/layer_4_weight_qparams.bin", 
                                              layer_4_weight_scale, layer_4_weight_zero_point);
                     
                     // Load bias for Conv2
-                    load_binary_data("{self.model_binary_dir}/layer_4_bias.bin", layer_4_bias_q8, 64);
-                    load_quantization_params("{self.model_binary_dir}/layer_4_bias_qparams.bin", 
+                    load_binary_data("{binary_dir_name}/layer_4_bias.bin", layer_4_bias_q8, 64);
+                    load_quantization_params("{binary_dir_name}/layer_4_bias_qparams.bin", 
                                             layer_4_bias_scale, layer_4_bias_zero_point);
                     
                     // Load weights for FC1 (layer 9)
-                    load_binary_data("{self.model_binary_dir}/layer_9_weight.bin", layer_9_weight_q8, 2048*3136);
-                    load_quantization_params("{self.model_binary_dir}/layer_9_weight_qparams.bin", 
+                    load_binary_data("{binary_dir_name}/layer_9_weight.bin", layer_9_weight_q8, 2048*3136);
+                    load_quantization_params("{binary_dir_name}/layer_9_weight_qparams.bin", 
                                              layer_9_weight_scale, layer_9_weight_zero_point);
                     
                     // Load bias for FC1
-                    load_binary_data("{self.model_binary_dir}/layer_9_bias.bin", layer_9_bias_q8, 2048);
-                    load_quantization_params("{self.model_binary_dir}/layer_9_bias_qparams.bin", 
+                    load_binary_data("{binary_dir_name}/layer_9_bias.bin", layer_9_bias_q8, 2048);
+                    load_quantization_params("{binary_dir_name}/layer_9_bias_qparams.bin", 
                                             layer_9_bias_scale, layer_9_bias_zero_point);
                     
                     // Load weights for FC2 (layer 11)
-                    load_binary_data("{self.model_binary_dir}/layer_11_weight.bin", layer_11_weight_q8, 10*2048);
-                    load_quantization_params("{self.model_binary_dir}/layer_11_weight_qparams.bin", 
+                    load_binary_data("{binary_dir_name}/layer_11_weight.bin", layer_11_weight_q8, 10*2048);
+                    load_quantization_params("{binary_dir_name}/layer_11_weight_qparams.bin", 
                                              layer_11_weight_scale, layer_11_weight_zero_point);
                     
                     // Load bias for FC2
-                    load_binary_data("{self.model_binary_dir}/layer_11_bias.bin", layer_11_bias_q8, 10);
-                    load_quantization_params("{self.model_binary_dir}/layer_11_bias_qparams.bin", 
+                    load_binary_data("{binary_dir_name}/layer_11_bias.bin", layer_11_bias_q8, 10);
+                    load_quantization_params("{binary_dir_name}/layer_11_bias_qparams.bin", 
                                             layer_11_bias_scale, layer_11_bias_zero_point);
                     
                     files_loaded = true;
@@ -795,4 +798,3 @@ class MatQuantPT_VGG(Implementation):
                 return std::vector<float>(layer_11, layer_11 + 10);
         """
 
-    

@@ -294,6 +294,7 @@ def generate_uniform_model(bit_width, mq_model, X_test, y_test):
         implementation, 
         measure_accuracy=True, 
         measure_time=True,
+        test_samples=1000,
         filename=f"matquant_pt_{bit_width}bit"
     )
     

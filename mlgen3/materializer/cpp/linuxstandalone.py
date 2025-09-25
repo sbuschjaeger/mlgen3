@@ -23,6 +23,7 @@ class LinuxStandalone(Materializer):
         measure_perf=False,
         compiler="g++",
         use_onnx=False,
+        test_samples=1000,
     ):
         super().__init__(implementation)
         self.measure_accuracy = measure_accuracy
@@ -31,6 +32,7 @@ class LinuxStandalone(Materializer):
         self.filename = "model" if filename is None else filename
         self.compiler = compiler
         self.use_onnx = use_onnx
+        self.test_samples = test_samples  # Number of random test samples to use
         
         # Set filename for implementations that need it
         if hasattr(implementation, 'set_filename'):
@@ -208,25 +210,46 @@ class LinuxStandalone(Materializer):
             
         YTest = self.implementation.model.YTest
 
-        # Create CSV file with flattened data
+        # Create CSV file with a subset of random samples
         XTest = XTest.astype(np.float32)
+        # Determine the number of samples to use (min of available samples and requested samples)
+        n_samples = min(len(XTest), self.test_samples)
+        # Select random indices
+        random_indices = np.random.choice(len(XTest), size=n_samples, replace=False)
+        # Use selected samples
+        X_samples = XTest[random_indices]
+        Y_samples = YTest[random_indices]
+
         dfTest = pd.concat(
             [
                 pd.DataFrame(
-                    XTest, columns=["f{}".format(i) for i in range(len(XTest[0]))]
+                    X_samples, columns=["f{}".format(i) for i in range(len(XTest[0]))]
                 ),
-                pd.DataFrame(YTest, columns=["label"]),
+                pd.DataFrame(Y_samples, columns=["label"]),
             ],
             axis=1,
         )
         dfTest.to_csv(os.path.join(self.path, "testing.csv"), header=True, index=False)
+
+        # # Create CSV file with flattened data
+        # XTest = XTest.astype(np.float32)
+        # dfTest = pd.concat(
+        #     [
+        #         pd.DataFrame(
+        #             XTest, columns=["f{}".format(i) for i in range(len(XTest[0]))]
+        #         ),
+        #         pd.DataFrame(YTest, columns=["label"]),
+        #     ],
+        #     axis=1,
+        # )
+        # dfTest.to_csv(os.path.join(self.path, "testing.csv"), header=True, index=False)
 
     def run(self, verbose=False):
         make_res = subprocess.run(
             f"cd {self.path} && make", capture_output=True, text=True, shell=True
         )
         if verbose:
-            print(f"Running cd {self.path} && make")
+            print(f"Running cd {self.path} && make\n")
             print(f"stdout: \n{make_res.stdout}")
             print(f"stderr: \n{make_res.stderr}")
         run_res = subprocess.run(

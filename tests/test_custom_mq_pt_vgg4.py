@@ -301,7 +301,7 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None):
         config_name = f"uniform_{bit_width}bit"
     
     # Create binary directory for model parameters
-    binary_dir = f"generated_code/matquant_pt_vgg4/{config_name}/mq_pt_vgg_binary"
+    binary_dir = f"generated_code/matquant_pt_vgg4/{config_name}/mq_pt_model_binary"
     os.makedirs(binary_dir, exist_ok=True)
     
     # Extract VGG4 layers directly without using MatQuantModel
@@ -346,6 +346,7 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None):
         implementation, 
         measure_accuracy=True, 
         measure_time=True,
+        test_samples=1000,
         filename=f"matquant_pt_vgg4_{config_name}"
     )
     
@@ -353,11 +354,13 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None):
     os.makedirs(output_path, exist_ok=True)
     
     materializer.materialize(output_path)
-    print(f"Model materialized at: {output_path}")
+    print(f"\nModel materialized at: {output_path}")
+
     materializer.deploy()
-    print(f"Model deployed successfully.")
+    print(f"\nModel deployed successfully.")
+
     results = materializer.run(verbose=True)
-    print(f"Model results: {results}")
+    print(f"\nModel results: {results}")
     
     return results
 
