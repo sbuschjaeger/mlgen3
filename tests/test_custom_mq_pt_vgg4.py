@@ -285,11 +285,11 @@ def extract_and_test_models(mq_model):
     return extracted_models, mix_config
 
 def generate_cpp_model(bit_width, mix_config=None, model_path=None):
-    """Generate C++ code for MatQuant PyTorch VGG4 model"""
+    """Generate C++ code for MatQuant PyTorch VGG model"""
     if not model_path:
         model_path = config['evaluation']['model_path']
         
-    print(f"\nGenerating C++ code for {'mix-and-match' if mix_config else bit_width}-bit VGG4 model...")
+    print(f"\nGenerating C++ code for {'mix-and-match' if mix_config else bit_width}-bit VGG model...")
     
     # Load the saved model state dict
     saved_model_state = torch.load(model_path)
@@ -304,24 +304,36 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None):
     binary_dir = f"generated_code/matquant_pt_vgg4/{config_name}/mq_pt_model_binary"
     os.makedirs(binary_dir, exist_ok=True)
     
-    # Extract VGG4 layers directly without using MatQuantModel
-    # For VGG4, we need to handle:
-    # - Two convolutional layers (layer 0 and layer 4)
-    # - Two fully connected layers (layer 9 and layer 11)
-    
     # Generate MatQuant PyTorch VGG implementation
     from mlgen3.implementations.neuralnet.cpp.matquant_pt_vgg import MatQuantPT_VGG
     from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
     
     # Create a simple class to hold necessary properties for the implementation
     class SimpleModelWrapper:
-        def __init__(self):
-            self.state_dict = saved_model_state
+        def __init__(self, state_dict):
+            self.state_dict = state_dict
             self.XTest = X_test
             self.YTest = y_test
+            
+            # Create a model with the same structure as the one that generated the state dict
+            # This is needed for the MatQuantPT_VGG.analyze_model() function
+            self.model = nn.Sequential(
+                nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+                nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
+                nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+                nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
+                nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+                nn.ReLU(inplace=True),
+                nn.Flatten(start_dim=1, end_dim=-1),
+                nn.Linear(in_features=3136, out_features=2048, bias=True),
+                nn.ReLU(),
+                nn.Linear(in_features=2048, out_features=10, bias=True)
+            )
     
-    # Create a simple model wrapper
-    simple_model = SimpleModelWrapper()
+    # Create a simple model wrapper with the saved state dict
+    simple_model = SimpleModelWrapper(saved_model_state)
     
     # Set quantization parameters
     simple_model.quantization_config = bit_width
