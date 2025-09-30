@@ -245,10 +245,22 @@ class MatQuantPT_VGG(Implementation):
             float layer_11_bias_scale = 1.0f;
             float layer_11_bias_zero_point = 0.0f;
             
+            // Pre-dequantized weights for faster inference
+            std::vector<float> layer_0_weights_dequant;
+            std::vector<float> layer_0_bias_dequant;
+            std::vector<float> layer_4_weights_dequant;
+            std::vector<float> layer_4_bias_dequant;
+            std::vector<float> layer_9_weights_dequant;
+            std::vector<float> layer_9_bias_dequant;
+            std::vector<float> layer_11_weights_dequant;
+            std::vector<float> layer_11_bias_dequant;
+            
             std::vector<float> predict(std::vector<float> &x) {{
                 // Load binary files if not loaded
                 static bool files_loaded = false;
                 if (!files_loaded) {{
+                    std::cout << std::endl << "Loading model parameters from binary files..." << std::endl;
+                
                     // Load weights for Conv1 (layer 0)
                     load_binary_data("{binary_dir_name}/layer_0_weight.bin", layer_0_weight_q8, 64*1*3*3);
                     load_quantization_params("{binary_dir_name}/layer_0_weight_qparams.bin", 
@@ -289,7 +301,81 @@ class MatQuantPT_VGG(Implementation):
                     load_quantization_params("{binary_dir_name}/layer_11_bias_qparams.bin", 
                                             layer_11_bias_scale, layer_11_bias_zero_point);
                     
+                    // Precompute dequantized weights for Layer 0 (Conv1)
+                    layer_0_weights_dequant.resize(64 * 1 * 3 * 3);
+                    for (size_t i = 0; i < layer_0_weight_q8.size(); i++) {{
+                        std::vector<uint8_t> weight_q8(1, layer_0_weight_q8[i]);
+                        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[0]);
+                        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_0_weight_scale, layer_0_weight_zero_point);
+                        layer_0_weights_dequant[i] = dequant_weight[0];
+                    }}
+                    
+                    std::cout << "Precomputing dequantized weights and biases for faster inference..." << std::endl;
+                    
+                    // Precompute dequantized biases for Layer 0
+                    layer_0_bias_dequant.resize(64);
+                    for (size_t i = 0; i < layer_0_bias_q8.size(); i++) {{
+                        std::vector<uint8_t> bias_q8(1, layer_0_bias_q8[i]);
+                        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[0]);
+                        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_0_bias_scale, layer_0_bias_zero_point);
+                        layer_0_bias_dequant[i] = dequant_bias[0];
+                    }}
+                    
+                    // Precompute dequantized weights for Layer 4 (Conv2)
+                    layer_4_weights_dequant.resize(64 * 64 * 3 * 3);
+                    for (size_t i = 0; i < layer_4_weight_q8.size(); i++) {{
+                        std::vector<uint8_t> weight_q8(1, layer_4_weight_q8[i]);
+                        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[4]);
+                        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_4_weight_scale, layer_4_weight_zero_point);
+                        layer_4_weights_dequant[i] = dequant_weight[0];
+                    }}
+                    
+                    // Precompute dequantized biases for Layer 4
+                    layer_4_bias_dequant.resize(64);
+                    for (size_t i = 0; i < layer_4_bias_q8.size(); i++) {{
+                        std::vector<uint8_t> bias_q8(1, layer_4_bias_q8[i]);
+                        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[4]);
+                        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_4_bias_scale, layer_4_bias_zero_point);
+                        layer_4_bias_dequant[i] = dequant_bias[0];
+                    }}
+                    
+                    // Precompute dequantized weights for Layer 9 (FC1)
+                    layer_9_weights_dequant.resize(2048 * 3136);
+                    for (size_t i = 0; i < layer_9_weight_q8.size(); i++) {{
+                        std::vector<uint8_t> weight_q8(1, layer_9_weight_q8[i]);
+                        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[9]);
+                        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_9_weight_scale, layer_9_weight_zero_point);
+                        layer_9_weights_dequant[i] = dequant_weight[0];
+                    }}
+                    
+                    // Precompute dequantized biases for Layer 9
+                    layer_9_bias_dequant.resize(2048);
+                    for (size_t i = 0; i < layer_9_bias_q8.size(); i++) {{
+                        std::vector<uint8_t> bias_q8(1, layer_9_bias_q8[i]);
+                        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[9]);
+                        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_9_bias_scale, layer_9_bias_zero_point);
+                        layer_9_bias_dequant[i] = dequant_bias[0];
+                    }}
+                    
+                    // Also precompute for Layer 11 (FC2)
+                    layer_11_weights_dequant.resize(10 * 2048);
+                    for (size_t i = 0; i < layer_11_weight_q8.size(); i++) {{
+                        std::vector<uint8_t> weight_q8(1, layer_11_weight_q8[i]);
+                        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[11]);
+                        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_11_weight_scale, layer_11_weight_zero_point);
+                        layer_11_weights_dequant[i] = dequant_weight[0];
+                    }}
+                    
+                    layer_11_bias_dequant.resize(10);
+                    for (size_t i = 0; i < layer_11_bias_q8.size(); i++) {{
+                        std::vector<uint8_t> bias_q8(1, layer_11_bias_q8[i]);
+                        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[11]);
+                        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_11_bias_scale, layer_11_bias_zero_point);
+                        layer_11_bias_dequant[i] = dequant_bias[0];
+                    }}
+                    
                     files_loaded = true;
+                    std::cout << "Model parameters loaded successfully." << std::endl << std::endl;
                 }}
                 
                 {layer_implementations}
@@ -517,284 +603,229 @@ class MatQuantPT_VGG(Implementation):
         """Generate C++ code for layer implementations."""
         # In a full implementation, this would generate code for all VGG4 layers
         return """
-                // Reshape input to 3D tensor (for convolution)
-                auto input_3d = cnn_utils::reshape_input_to_3d(x, INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH);
+            // Reshape input to 3D tensor (for convolution)
+            auto input_3d = cnn_utils::reshape_input_to_3d(x, INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH);
+            
+            // Layer 0: Conv1
+            std::vector<std::vector<std::vector<float>>> layer_0_3d(64, std::vector<std::vector<float>>(28, std::vector<float>(28, 0.0f)));
+            
+            // Perform 2D convolution
+            for (int out_c = 0; out_c < 64; out_c++) {{
+                // Initialize output with precomputed dequantized bias
+                for (int h_out = 0; h_out < 28; h_out++) {{
+                    for (int w_out = 0; w_out < 28; w_out++) {{
+                        layer_0_3d[out_c][h_out][w_out] = layer_0_bias_dequant[out_c];
+                    }}
+                }}
                 
-                // Layer 0: Conv1
-                std::vector<std::vector<std::vector<float>>> layer_0_3d(64, std::vector<std::vector<float>>(28, std::vector<float>(28, 0.0f)));
-                
-                // Perform 2D convolution
-                for (int out_c = 0; out_c < 64; out_c++) {
-                    // First set bias
-                    std::vector<uint8_t> bias_q8(1);
-                    bias_q8[0] = layer_0_bias_q8[out_c];
-                    std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[0]);
-                    std::vector<float> dequant_bias = dequantize(sliced_bias, layer_0_bias_scale, layer_0_bias_zero_point);
-                    
-                    // Initialize output with bias
-                    for (int h_out = 0; h_out < 28; h_out++) {
-                        for (int w_out = 0; w_out < 28; w_out++) {
-                            layer_0_3d[out_c][h_out][w_out] = dequant_bias[0];
-                        }
-                    }
-                    
-                    // Perform convolution
-                    for (int in_c = 0; in_c < INPUT_CHANNELS; in_c++) {
-                        for (int h_out = 0; h_out < 28; h_out++) {
-                            for (int w_out = 0; w_out < 28; w_out++) {
-                                // Compute convolution with 3x3 kernel
-                                for (int kh = 0; kh < 3; kh++) {
-                                    for (int kw = 0; kw < 3; kw++) {
-                                        // Calculate input position with padding
-                                        int h_in = h_out + kh - 1;
-                                        int w_in = w_out + kw - 1;
-                                        
-                                        // Skip if outside input boundaries
-                                        if (h_in < 0 || h_in >= INPUT_HEIGHT || w_in < 0 || w_in >= INPUT_WIDTH) {
-                                            continue;
-                                        }
-                                        
-                                        // Calculate weight index
-                                        int weight_idx = out_c * (INPUT_CHANNELS * 3 * 3) + in_c * (3 * 3) + kh * 3 + kw;
-                                        
-                                        // Get weight, apply bit slicing, and dequantize
-                                        std::vector<uint8_t> weight_q8(1);
-                                        weight_q8[0] = layer_0_weight_q8[weight_idx];
-                                        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[0]);
-                                        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_0_weight_scale, layer_0_weight_zero_point);
-                                        
-                                        // Add to output
-                                        layer_0_3d[out_c][h_out][w_out] += input_3d[in_c][h_in][w_in] * dequant_weight[0];
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Copy to layer_0 (flatten for later layers)
-                for (int c = 0; c < 64; c++) {
-                    for (int h = 0; h < 28; h++) {
-                        for (int w = 0; w < 28; w++) {
-                            layer_0[c * 28 * 28 + h * 28 + w] = layer_0_3d[c][h][w];
-                        }
-                    }
-                }
-                
-                // Layer 1: MaxPool1
-                std::vector<std::vector<std::vector<float>>> layer_1_3d(64, std::vector<std::vector<float>>(14, std::vector<float>(14, 0.0f)));
-                
-                // Perform max pooling
-                for (int c = 0; c < 64; c++) {
-                    for (int h_out = 0; h_out < 14; h_out++) {
-                        for (int w_out = 0; w_out < 14; w_out++) {
-                            // Calculate input region (2x2 kernel)
-                            int h_start = h_out * 2;
-                            int w_start = w_out * 2;
-                            
-                            // Find max value in the 2x2 region
-                            float max_val = -std::numeric_limits<float>::infinity();
-                            for (int h = 0; h < 2; h++) {
-                                for (int w = 0; w < 2; w++) {
-                                    int h_in = h_start + h;
-                                    int w_in = w_start + w;
-                                    float val = layer_0_3d[c][h_in][w_in];
-                                    max_val = std::max(max_val, val);
-                                }
-                            }
-                            layer_1_3d[c][h_out][w_out] = max_val;
-                        }
-                    }
-                }
-                
-                // Copy to layer_1 (flatten)
-                for (int c = 0; c < 64; c++) {
-                    for (int h = 0; h < 14; h++) {
-                        for (int w = 0; w < 14; w++) {
-                            layer_1[c * 14 * 14 + h * 14 + w] = layer_1_3d[c][h][w];
-                        }
-                    }
-                }
-                
-                // Layer 2: BatchNorm1 (simplified here)
-                std::vector<std::vector<std::vector<float>>> layer_2_3d = layer_1_3d; // Copy for now
-                
-                // Layer 3: ReLU after BatchNorm
-                cnn_utils::apply_relu_3d(layer_2_3d);
-                
-                // Copy to layer_3 (flatten)
-                for (int c = 0; c < static_cast<int>(layer_2_3d.size()); c++) {
-                    for (int h = 0; h < static_cast<int>(layer_2_3d[c].size()); h++) {
-                        for (int w = 0; w < static_cast<int>(layer_2_3d[c][h].size()); w++) {
-                            layer_3[c * 14 * 14 + h * 14 + w] = layer_2_3d[c][h][w];
-                        }
-                    }
-                }
-                
-                // Layer 4: Conv2
-                std::vector<std::vector<std::vector<float>>> layer_4_3d(64, std::vector<std::vector<float>>(14, std::vector<float>(14, 0.0f)));
-                
-                // Perform 2D convolution
-                for (int out_c = 0; out_c < 64; out_c++) {
-                    // First set bias
-                    std::vector<uint8_t> bias_q8(1);
-                    bias_q8[0] = layer_4_bias_q8[out_c];
-                    std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[4]);
-                    std::vector<float> dequant_bias = dequantize(sliced_bias, layer_4_bias_scale, layer_4_bias_zero_point);
-                    
-                    // Initialize output with bias
-                    for (int h_out = 0; h_out < 14; h_out++) {
-                        for (int w_out = 0; w_out < 14; w_out++) {
-                            layer_4_3d[out_c][h_out][w_out] = dequant_bias[0];
-                        }
-                    }
-                    
-                    // Perform convolution
-                    for (int in_c = 0; in_c < 64; in_c++) {
-                        for (int h_out = 0; h_out < 14; h_out++) {
-                            for (int w_out = 0; w_out < 14; w_out++) {
-                                // Compute convolution with 3x3 kernel
-                                for (int kh = 0; kh < 3; kh++) {
-                                    for (int kw = 0; kw < 3; kw++) {
-                                        // Calculate input position with padding
-                                        int h_in = h_out + kh - 1;
-                                        int w_in = w_out + kw - 1;
-                                        
-                                        // Skip if outside input boundaries
-                                        if (h_in < 0 || h_in >= 14 || w_in < 0 || w_in >= 14) {
-                                            continue;
-                                        }
-                                        
-                                        // Calculate weight index
-                                        int weight_idx = out_c * (64 * 3 * 3) + in_c * (3 * 3) + kh * 3 + kw;
-                                        
-                                        // Get weight, apply bit slicing, and dequantize
-                                        std::vector<uint8_t> weight_q8(1);
-                                        weight_q8[0] = layer_4_weight_q8[weight_idx];
-                                        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[4]);
-                                        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_4_weight_scale, layer_4_weight_zero_point);
-                                        
-                                        // Add to output
-                                        layer_4_3d[out_c][h_out][w_out] += layer_2_3d[in_c][h_in][w_in] * dequant_weight[0];
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Copy to layer_4 (flatten)
-                for (int c = 0; c < 64; c++) {
-                    for (int h = 0; h < 14; h++) {
-                        for (int w = 0; w < 14; w++) {
-                            layer_4[c * 14 * 14 + h * 14 + w] = layer_4_3d[c][h][w];
-                        }
-                    }
-                }
-                
-                // Layer 5: MaxPool2
-                std::vector<std::vector<std::vector<float>>> layer_5_3d(64, std::vector<std::vector<float>>(7, std::vector<float>(7, 0.0f)));
-                
-                // Perform max pooling
-                for (int c = 0; c < 64; c++) {
-                    for (int h_out = 0; h_out < 7; h_out++) {
-                        for (int w_out = 0; w_out < 7; w_out++) {
-                            // Calculate input region (2x2 kernel)
-                            int h_start = h_out * 2;
-                            int w_start = w_out * 2;
-                            
-                            // Find max value in the 2x2 region
-                            float max_val = -std::numeric_limits<float>::infinity();
-                            for (int h = 0; h < 2; h++) {
-                                for (int w = 0; w < 2; w++) {
-                                    int h_in = h_start + h;
-                                    int w_in = w_start + w;
-                                    float val = layer_4_3d[c][h_in][w_in];
-                                    max_val = std::max(max_val, val);
-                                }
-                            }
-                            layer_5_3d[c][h_out][w_out] = max_val;
-                        }
-                    }
-                }
-                
-                // Copy to layer_5 (flatten)
-                for (int c = 0; c < 64; c++) {
-                    for (int h = 0; h < 7; h++) {
-                        for (int w = 0; w < 7; w++) {
-                            layer_5[c * 7 * 7 + h * 7 + w] = layer_5_3d[c][h][w];
-                        }
-                    }
-                }
-                
-                // Layer 6: BatchNorm2 (simplified here)
-                std::vector<std::vector<std::vector<float>>> layer_6_3d = layer_5_3d; // Copy for now
-                
-                // Layer 7: ReLU after BatchNorm
-                cnn_utils::apply_relu_3d(layer_6_3d);
-                
-                // Flatten for FC layers (64*7*7 = 3136)
-                std::vector<float> flattened(3136);
-                for (int c = 0; c < static_cast<int>(layer_6_3d.size()); c++) {
-                    for (int h = 0; h < static_cast<int>(layer_6_3d[c].size()); h++) {
-                        for (int w = 0; w < static_cast<int>(layer_6_3d[c][h].size()); w++) {
-                            flattened[c * 7 * 7 + h * 7 + w] = layer_6_3d[c][h][w];
-                        }
-                    }
-                }
-                
-                // Layer 9: FC1 (3136 -> 2048)
-                for (int i = 0; i < 2048; i++) {
-                    // First get the bias
-                    std::vector<uint8_t> bias_q8(1);
-                    bias_q8[0] = layer_9_bias_q8[i];
-                    std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[9]);
-                    std::vector<float> dequant_bias = dequantize(sliced_bias, layer_9_bias_scale, layer_9_bias_zero_point);
-                    layer_9[i] = dequant_bias[0];
-                    
-                    // Compute dot product
-                    for (int j = 0; j < 3136; j++) {
-                        int weight_idx = i * 3136 + j;
+                // Perform convolution with precomputed dequantized weights
+                for (int in_c = 0; in_c < INPUT_CHANNELS; in_c++) {{
+                    for (int h_out = 0; h_out < 28; h_out++) {{
+                        for (int w_out = 0; w_out < 28; w_out++) {{
+                            // Compute convolution with 3x3 kernel
+                            for (int kh = 0; kh < 3; kh++) {{
+                                for (int kw = 0; kw < 3; kw++) {{
+                                    // Calculate input position with padding
+                                    int h_in = h_out + kh - 1;
+                                    int w_in = w_out + kw - 1;
+                                    
+                                    // Skip if outside input boundaries
+                                    if (h_in < 0 || h_in >= INPUT_HEIGHT || w_in < 0 || w_in >= INPUT_WIDTH) {{
+                                        continue;
+                                    }}
+                                    
+                                    // Calculate weight index
+                                    int weight_idx = out_c * (INPUT_CHANNELS * 3 * 3) + in_c * (3 * 3) + kh * 3 + kw;
+                                    
+                                    // Use precomputed dequantized weights
+                                    layer_0_3d[out_c][h_out][w_out] += input_3d[in_c][h_in][w_in] * layer_0_weights_dequant[weight_idx];
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+            
+            // Copy to layer_0 (flatten for later layers)
+            for (int c = 0; c < 64; c++) {{
+                for (int h = 0; h < 28; h++) {{
+                    for (int w = 0; w < 28; w++) {{
+                        layer_0[c * 28 * 28 + h * 28 + w] = layer_0_3d[c][h][w];
+                    }}
+                }}
+            }}
+            
+            // Layer 1: MaxPool1
+            std::vector<std::vector<std::vector<float>>> layer_1_3d(64, std::vector<std::vector<float>>(14, std::vector<float>(14, 0.0f)));
+            
+            // Perform max pooling
+            for (int c = 0; c < 64; c++) {{
+                for (int h_out = 0; h_out < 14; h_out++) {{
+                    for (int w_out = 0; w_out < 14; w_out++) {{
+                        // Calculate input region (2x2 kernel)
+                        int h_start = h_out * 2;
+                        int w_start = w_out * 2;
                         
-                        // Get weight, apply bit slicing, and dequantize
-                        std::vector<uint8_t> weight_q8(1);
-                        weight_q8[0] = layer_9_weight_q8[weight_idx];
-                        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[9]);
-                        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_9_weight_scale, layer_9_weight_zero_point);
+                        // Find max value in the 2x2 region
+                        float max_val = -std::numeric_limits<float>::infinity();
+                        for (int h = 0; h < 2; h++) {{
+                            for (int w = 0; w < 2; w++) {{
+                                int h_in = h_start + h;
+                                int w_in = w_start + w;
+                                float val = layer_0_3d[c][h_in][w_in];
+                                max_val = std::max(max_val, val);
+                            }}
+                        }}
+                        layer_1_3d[c][h_out][w_out] = max_val;
+                    }}
+                }}
+            }}
+            
+            // Copy to layer_1 (flatten)
+            for (int c = 0; c < 64; c++) {{
+                for (int h = 0; h < 14; h++) {{
+                    for (int w = 0; w < 14; w++) {{
+                        layer_1[c * 14 * 14 + h * 14 + w] = layer_1_3d[c][h][w];
+                    }}
+                }}
+            }}
+            
+            // Layer 2: BatchNorm1 (simplified here)
+            std::vector<std::vector<std::vector<float>>> layer_2_3d = layer_1_3d; // Copy for now
+            
+            // Layer 3: ReLU after BatchNorm
+            cnn_utils::apply_relu_3d(layer_2_3d);
+            
+            // Copy to layer_3 (flatten)
+            for (int c = 0; c < static_cast<int>(layer_2_3d.size()); c++) {{
+                for (int h = 0; h < static_cast<int>(layer_2_3d[c].size()); h++) {{
+                    for (int w = 0; w < static_cast<int>(layer_2_3d[c][h].size()); w++) {{
+                        layer_3[c * 14 * 14 + h * 14 + w] = layer_2_3d[c][h][w];
+                    }}
+                }}
+            }}
+            
+            // Layer 4: Conv2 - OPTIMIZED VERSION
+            std::vector<std::vector<std::vector<float>>> layer_4_3d(64, std::vector<std::vector<float>>(14, std::vector<float>(14, 0.0f)));
+            
+            // Initialize with bias
+            for (int out_c = 0; out_c < 64; out_c++) {{
+                for (int h_out = 0; h_out < 14; h_out++) {{
+                    for (int w_out = 0; w_out < 14; w_out++) {{
+                        layer_4_3d[out_c][h_out][w_out] = layer_4_bias_dequant[out_c];
+                    }}
+                }}
+            }}
+            
+            // Reorder loops for better cache locality
+            for (int out_c = 0; out_c < 64; out_c++) {{
+                for (int h_out = 0; h_out < 14; h_out++) {{
+                    for (int w_out = 0; w_out < 14; w_out++) {{
+                        for (int kh = 0; kh < 3; kh++) {{
+                            for (int kw = 0; kw < 3; kw++) {{
+                                int h_in = h_out + kh - 1;
+                                int w_in = w_out + kw - 1;
+                                
+                                // Skip if outside input boundaries
+                                if (h_in < 0 || h_in >= 14 || w_in < 0 || w_in >= 14) {{
+                                    continue;
+                                }}
+                                
+                                for (int in_c = 0; in_c < 64; in_c++) {{
+                                    // Direct access to precomputed dequantized weights
+                                    int weight_idx = out_c * (64 * 3 * 3) + in_c * (3 * 3) + kh * 3 + kw;
+                                    layer_4_3d[out_c][h_out][w_out] += layer_2_3d[in_c][h_in][w_in] * layer_4_weights_dequant[weight_idx];
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+            
+            // Copy to layer_4 (flatten)
+            for (int c = 0; c < 64; c++) {{
+                for (int h = 0; h < 14; h++) {{
+                    for (int w = 0; w < 14; w++) {{
+                        layer_4[c * 14 * 14 + h * 14 + w] = layer_4_3d[c][h][w];
+                    }}
+                }}
+            }}
+            
+            // Layer 5: MaxPool2
+            std::vector<std::vector<std::vector<float>>> layer_5_3d(64, std::vector<std::vector<float>>(7, std::vector<float>(7, 0.0f)));
+            
+            // Perform max pooling
+            for (int c = 0; c < 64; c++) {{
+                for (int h_out = 0; h_out < 7; h_out++) {{
+                    for (int w_out = 0; w_out < 7; w_out++) {{
+                        // Calculate input region (2x2 kernel)
+                        int h_start = h_out * 2;
+                        int w_start = w_out * 2;
                         
-                        layer_9[i] += flattened[j] * dequant_weight[0];
-                    }
-                }
+                        // Find max value in the 2x2 region
+                        float max_val = -std::numeric_limits<float>::infinity();
+                        for (int h = 0; h < 2; h++) {{
+                            for (int w = 0; w < 2; w++) {{
+                                int h_in = h_start + h;
+                                int w_in = w_start + w;
+                                float val = layer_4_3d[c][h_in][w_in];
+                                max_val = std::max(max_val, val);
+                            }}
+                        }}
+                        layer_5_3d[c][h_out][w_out] = max_val;
+                    }}
+                }}
+            }}
+            
+            // Copy to layer_5 (flatten)
+            for (int c = 0; c < 64; c++) {{
+                for (int h = 0; h < 7; h++) {{
+                    for (int w = 0; w < 7; w++) {{
+                        layer_5[c * 7 * 7 + h * 7 + w] = layer_5_3d[c][h][w];
+                    }}
+                }}
+            }}
+            
+            // Layer 6: BatchNorm2 (simplified here)
+            std::vector<std::vector<std::vector<float>>> layer_6_3d = layer_5_3d; // Copy for now
+            
+            // Layer 7: ReLU after BatchNorm
+            cnn_utils::apply_relu_3d(layer_6_3d);
+            
+            // Flatten for FC layers (64*7*7 = 3136)
+            std::vector<float> flattened(3136);
+            for (int c = 0; c < static_cast<int>(layer_6_3d.size()); c++) {{
+                for (int h = 0; h < static_cast<int>(layer_6_3d[c].size()); h++) {{
+                    for (int w = 0; w < static_cast<int>(layer_6_3d[c][h].size()); w++) {{
+                        flattened[c * 7 * 7 + h * 7 + w] = layer_6_3d[c][h][w];
+                    }}
+                }}
+            }}
+            
+            // Layer 9: FC1 (3136 -> 2048)
+            for (int i = 0; i < 2048; i++) {{
+                // Initialize with bias
+                layer_9[i] = layer_9_bias_dequant[i];
                 
-                // Layer 10: ReLU
-                for (int i = 0; i < 2048; i++) {
-                    layer_10[i] = std::max(0.0f, layer_9[i]);
-                }
-                
-                // Layer 11: FC2 (2048 -> 10)
-                for (int i = 0; i < 10; i++) {
-                    // First get the bias
-                    std::vector<uint8_t> bias_q8(1);
-                    bias_q8[0] = layer_11_bias_q8[i];
-                    std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[11]);
-                    std::vector<float> dequant_bias = dequantize(sliced_bias, layer_11_bias_scale, layer_11_bias_zero_point);
-                    layer_11[i] = dequant_bias[0];
-                    
-                    // Compute dot product
-                    for (int j = 0; j < 2048; j++) {
-                        int weight_idx = i * 2048 + j;
-                        
-                        // Get weight, apply bit slicing, and dequantize
-                        std::vector<uint8_t> weight_q8(1);
-                        weight_q8[0] = layer_11_weight_q8[weight_idx];
-                        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[11]);
-                        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_11_weight_scale, layer_11_weight_zero_point);
-                        
-                        layer_11[i] += layer_10[j] * dequant_weight[0];
-                    }
-                }
-                
-                // Convert C array to std::vector for return
-                return std::vector<float>(layer_11, layer_11 + 10);
-        """
+                // Simple direct implementation without blocking
+                for (int j = 0; j < 3136; j++) {{
+                    layer_9[i] += flattened[j] * layer_9_weights_dequant[i * 3136 + j];
+                }}
+            }}
+            
+            // Layer 10: ReLU - can be vectorized
+            for (int i = 0; i < 2048; i++) {{
+                layer_10[i] = std::max(0.0f, layer_9[i]);
+            }}
 
+            // Layer 11: FC2 (2048 -> 10)
+            for (int i = 0; i < 10; i++) {{
+                // Initialize with bias
+                layer_11[i] = layer_11_bias_dequant[i];
+                
+                // Simple direct implementation without blocking
+                for (int j = 0; j < 2048; j++) {{
+                    layer_11[i] += layer_10[j] * layer_11_weights_dequant[i * 2048 + j];
+                }}
+            }}
+        """

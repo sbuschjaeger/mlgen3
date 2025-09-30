@@ -89,7 +89,6 @@ void print_matquant_info() {
     std::cout << "MatQuant PyTorch VGG Model Information:" << std::endl;
     std::cout << "  Target Bit Width: " << TARGET_BITS << std::endl;
     std::cout << "  Storage Bit Width: " << STORAGE_BITS << std::endl;
-    std::cout << "  Input Dimensions: " << INPUT_CHANNELS << "x" << INPUT_HEIGHT << "x" << INPUT_WIDTH << std::endl;
     
     if (IS_MIX_AND_MATCH) {
         std::cout << "  Mode: Mix-and-Match" << std::endl;
@@ -125,3 +124,4 @@ int main (int argc, char *argv[]) {
     
     return 0;
 }
+
