@@ -523,7 +523,7 @@ def get_dataset(dataset, tmpdir = None):
                 if hasattr(tarfile, 'TAR_FILTER_NONE'):  # Python 3.12+
                     tar.extractall(path=out_path, filter=tarfile.TAR_FILTER_NONE)
                 else:  # Earlier Python versions
-                    tar.extractall(path=out_path, filter='none')
+                    tar.extractall(path=out_path)
             
             # Move files from extracted directory to out_path
             extracted_dir = os.path.join(out_path, "cifar-10-batches-py")
@@ -566,7 +566,7 @@ def get_dataset(dataset, tmpdir = None):
                 if hasattr(tarfile, 'TAR_FILTER_NONE'):  # Python 3.12+
                     tar.extractall(path=out_path, filter=tarfile.TAR_FILTER_NONE)
                 else:  # Earlier Python versions
-                    tar.extractall(path=out_path, filter="none")
+                    tar.extractall(path=out_path)
         
         # Load and process images
         from PIL import Image

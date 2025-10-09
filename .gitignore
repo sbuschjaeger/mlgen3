@@ -13,9 +13,9 @@ generated_code/*
 dist/*
 onnx2tflite/*
 
-matquant.py
-config_vgg8_mq842.yaml
-config_vgg4_mq842.yaml
+# matquant.py
+# config_vgg8_mq842.yaml
+# config_vgg4_mq842.yaml
 
 .github/copilot-instructions.md
 

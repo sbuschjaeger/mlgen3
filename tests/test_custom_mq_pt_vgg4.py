@@ -13,6 +13,7 @@ import argparse
 
 from Datasets import get_dataset
 from matquant import MatQuant
+from mlgen3.utils.seed import set_seed, get_seed_from_config
 
 # Create output directories
 os.makedirs("models/matquant/fashion_pt", exist_ok=True)
@@ -76,7 +77,7 @@ config = {
         'target_bits': [8, 4, 2],
         'loss_weights': {8: 0.4, 4: 0.8, 2: 0.8},
         'quantize_bias': True,
-        'quantize_target': 'weights_and_activations',
+        'quantize_target': 'weights_and_activations', # 'weights_and_activations' or 'weights_only'
         'quantize_layers': [
             # Will be filled by layer_registry
         ]
@@ -102,7 +103,8 @@ config = {
         'gamma': 0.1,
         'step_size': 5,
         'momentum': 0.9,
-        'weight_decay': 0.0001
+        'weight_decay': 0.0001,
+        'seed': 707  # Random seed for reproducibility
     },
     'evaluation': {
         'model_path': './models/matquant/fashion_pt/mq_pt_vgg_model.pt',
@@ -112,6 +114,12 @@ config = {
 }
 
 def train_model(args):
+    # Set random seed for reproducibility
+    seed = get_seed_from_config(config)
+    if args.seed is not None:
+        seed = args.seed
+    set_seed(seed)
+    
     print("\nCreating VGG4 model...")
     model = VGG()
     
@@ -179,9 +187,12 @@ def train_model(args):
             running_loss += loss.item()
         
         scheduler.step()
+
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/(len(X_train)/batch_size):.4f}")
         
-        # Evaluate
+        # Evaluate forward_with_quant()
         model.eval()
+        mq_model.eval()
         with torch.no_grad():
             # Test for each bit-width
             accuracies = {}
@@ -189,7 +200,7 @@ def train_model(args):
                 correct = 0
                 total = 0
                 
-                for i in tqdm(range(0, len(X_test), batch_size), desc=f"Testing {bits}-bit"):
+                for i in tqdm(range(0, len(X_test), batch_size), desc=f"(1)Testing {bits}-bit"):
                     inputs = test_x[i:i+batch_size].to(device)
                     targets = test_y[i:i+batch_size].to(device)
                     
@@ -202,9 +213,39 @@ def train_model(args):
                 accuracy = 100 * correct / total
                 accuracies[bits] = accuracy
         
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/(len(X_train)/batch_size):.4f}")
         for bits, acc in accuracies.items():
-            print(f"  {bits}-bit Accuracy: {acc:.2f}%")
+            print(f"(1)  {bits}-bit Accuracy: {acc:.2f}%")
+
+        
+        # print("")
+        # # Evaluate extract_model()
+        # model.eval()
+        
+        # extracted_models = {}
+        # for bits in config['quantization']['target_bits']:
+        #     extracted_models[bits] = mq_model.extract_model(bits)
+
+        # # Test extracted models
+        # for bits, ext_model in extracted_models.items():
+        #     ext_model.eval()
+        #     with torch.no_grad():
+        #         correct = 0
+        #         total = 0
+        #         for i in tqdm(range(0, len(X_test), batch_size), desc=f"(1.2)Testing extracted {bits}-bit"):
+        #             inputs = test_x[i:i+batch_size].to(device)
+        #             targets = test_y[i:i+batch_size].to(device)
+                    
+        #             outputs = ext_model(inputs)
+        #             _, predicted = torch.max(outputs, 1)
+                    
+        #             total += targets.size(0)
+        #             correct += (predicted == targets).sum().item()
+                    
+        #         accuracy = 100 * correct / total
+        #         print(f"(1.2)Extracted {bits}-bit model accuracy: {accuracy:.2f}%")
+
+
+        
     
     # Save the trained model parameters
     model_path = config['evaluation']['model_path']
@@ -383,6 +424,7 @@ def parse_args():
     parser.add_argument('--generate', action='store_true', help='Generate C++ code')
     parser.add_argument('--uniform', type=int, nargs='+', default=[8], help='Bit-widths for uniform quantization models')
     parser.add_argument('--mix', action='store_true', help='Generate mix-and-match model')
+    parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility (overrides config)')
     return parser.parse_args()
 
 if __name__ == "__main__":

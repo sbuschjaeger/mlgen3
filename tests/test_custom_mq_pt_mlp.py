@@ -11,9 +11,11 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 import torch.nn.functional as F
 from tqdm import tqdm
+import argparse
 
 from Datasets import get_dataset
 from matquant import MatQuant, MQ_ActivationQuantizer
+from mlgen3.utils.seed import set_seed, get_seed_from_config
 
 # Create output directories
 os.makedirs("models/matquant/mnist_pt", exist_ok=True)
@@ -35,7 +37,7 @@ test_y = torch.tensor(y_test, dtype=torch.long)
 class MLP(nn.Module):
     def __init__(self):
         super(MLP, self).__init__()
-        self.layers = nn.Sequential(
+        self.model = nn.Sequential(
             nn.Linear(784, 128),
             nn.BatchNorm1d(128),
             nn.ReLU(),
@@ -46,11 +48,7 @@ class MLP(nn.Module):
         )
     
     def forward(self, x):
-        return self.layers(x)
-
-# Create model
-print("\nCreating MLP model...")
-model = MLP()
+        return self.model(x)
 
 # Create MatQuant config
 config = {
@@ -62,12 +60,15 @@ config = {
         'target_bits': [8, 4, 2],
         'loss_weights': {8: 0.4, 4: 0.4, 2: 0.2},
         'quantize_bias': True,
-        'quantize_target': 'weights_and_activations',
+        'quantize_target': 'weights_and_activations', # 'weights_and_activations' or 'weights_only'
         'quantize_layers': [
-            'layers.0.weight',
-            'layers.3.weight',
-            'layers.6.weight'
+            'model.0.weight',
+            'model.3.weight',
+            'model.6.weight'
         ]
+    },
+    'training': {
+        'seed': 707  # Random seed for reproducibility
     }
 }
 
@@ -85,97 +86,165 @@ class LayerRegistry:
                     self.layer_paths.append(weight_name)
         return self.layer_paths
 
-# Create and register layers
-layer_registry = LayerRegistry()
-all_layers = layer_registry.register_model(model)
-print(f"Registered layers: {all_layers}")
-
-# Initialize MatQuant wrapper
-print("\nInitializing MatQuant wrapper...")
-mq_model = MatQuant(model, config)
-mq_model.set_quantized_layers(config['quantization']['quantize_layers'])
-
-# Training parameters
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
-scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
-batch_size = 64
-epochs = 3
-
-# Training loop
-print(f"\nTraining MLP with MatQuant for {epochs} epochs...")
-for epoch in range(epochs):
-    model.train()
-    running_loss = 0.0
+def train_model(args):
+    # Set random seed for reproducibility
+    seed = get_seed_from_config(config)
+    if args.seed is not None:
+        seed = args.seed
+    set_seed(seed)
     
-    for i in tqdm(range(0, len(X_train), batch_size), desc=f"Epoch {epoch+1}/{epochs}"):
-        inputs = train_x[i:i+batch_size]
-        targets = train_y[i:i+batch_size]
+    # Create model
+    print("\nCreating MLP model...")
+    model = MLP()
+
+    # Create and register layers
+    layer_registry = LayerRegistry()
+    all_layers = layer_registry.register_model(model)
+    print(f"Registered layers: {all_layers}")
+
+    # Initialize MatQuant wrapper
+    print("\nInitializing MatQuant wrapper...")
+    mq_model = MatQuant(model, config)
+    mq_model.set_quantized_layers(config['quantization']['quantize_layers'])
+
+    # Training parameters
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
+    batch_size = 64
+    epochs = args.epochs
+
+    # Training loop
+    print(f"\nTraining MLP with MatQuant for {epochs} epochs...")
+    for epoch in range(epochs):
+        model.train()
+        running_loss = 0.0
         
-        optimizer.zero_grad()
+        for i in tqdm(range(0, len(X_train), batch_size), desc=f"Epoch {epoch+1}/{epochs}"):
+            inputs = train_x[i:i+batch_size]
+            targets = train_y[i:i+batch_size]
+            
+            optimizer.zero_grad()
+            
+            # Multi-precision forward pass
+            outputs = mq_model.multi_precision_forward(inputs)
+            
+            # Calculate weighted loss
+            loss, individual_losses = mq_model.matquant_loss(outputs, targets)
+            
+            loss.backward()
+            optimizer.step()
+            
+            running_loss += loss.item()
         
-        # Multi-precision forward pass
-        outputs = mq_model.multi_precision_forward(inputs)
+        scheduler.step()
         
-        # Calculate weighted loss
-        loss, individual_losses = mq_model.matquant_loss(outputs, targets)
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/(len(X_train)/batch_size):.4f}")
+
+
+        # Evaluate forward_with_quant()
+        model.eval()
+        mq_model.eval()
+        with torch.no_grad():
+            # Test for each bit-width
+            accuracies = {}
+            for bits in config['quantization']['target_bits']:
+                correct = 0
+                total = 0
+                
+                for i in tqdm(range(0, len(X_test), batch_size), desc=f"(1)Testing {bits}-bit"):
+                    inputs = test_x[i:i+batch_size]
+                    targets = test_y[i:i+batch_size]
+                    
+                    outputs = mq_model.forward_with_quant(inputs, bits)
+                    _, predicted = torch.max(outputs, 1)
+                    
+                    total += targets.size(0)
+                    correct += (predicted == targets).sum().item()
+                    
+                accuracy = 100 * correct / total
+                accuracies[bits] = accuracy
         
-        loss.backward()
-        optimizer.step()
+        for bits, acc in accuracies.items():
+            print(f"(1)  {bits}-bit Accuracy: {acc:.2f}%")
+
+        # print("")
         
-        running_loss += loss.item()
+        # # Evaluate extract_model()
+        # model.eval()
+        
+        # extracted_models = {}
+        # for bits in config['quantization']['target_bits']:
+        #     extracted_models[bits] = mq_model.extract_model(bits)
+
+        # # Test extracted models
+        # for bits, ext_model in extracted_models.items():
+        #     ext_model.eval()
+        #     with torch.no_grad():
+        #         correct = 0
+        #         total = 0
+        #         for i in tqdm(range(0, len(X_test), batch_size), desc=f"(1.2)Testing extracted {bits}-bit"):
+        #             inputs = test_x[i:i+batch_size]
+        #             targets = test_y[i:i+batch_size]
+                    
+        #             outputs = ext_model(inputs)
+        #             _, predicted = torch.max(outputs, 1)
+                    
+        #             total += targets.size(0)
+        #             correct += (predicted == targets).sum().item()
+                    
+        #         accuracy = 100 * correct / total
+        #         print(f"(1.2)Extracted {bits}-bit model accuracy: {accuracy:.2f}%")
+
+
+    # Save the trained model parameters
+    model_path = "models/matquant/mnist_pt/mq_pt_model.pt"
+    torch.save(model.state_dict(), model_path)
+    print(f"\nSaved MatQuant model to {model_path}")
     
-    scheduler.step()
+    return model, mq_model
+
+def extract_and_test_models(mq_model):
+    batch_size = 64
     
-    # Evaluate
-    model.eval()
-    with torch.no_grad():
-        # Test for each bit-width
-        accuracies = {}
-        for bits in config['quantization']['target_bits']:
+    # Extract models with different bit-widths
+    print("\nExtracting models with different bit-widths...")
+    extracted_models = {}
+    for bits in config['quantization']['target_bits']:
+        extracted_models[bits] = mq_model.extract_model(bits)
+
+    # Create mix-and-match model
+    mix_config = {
+        'model.0.weight': 8, 
+        'model.3.weight': 4, 
+        'model.6.weight': 2
+    }
+    mix_model = mq_model.mix_and_match(mix_config)
+
+    print("\n(2)Testing extracted and mix-and-match models...")
+    # Test extracted models
+    for bits, ext_model in extracted_models.items():
+        ext_model.eval()
+        with torch.no_grad():
             correct = 0
             total = 0
-            
-            for i in tqdm(range(0, len(X_test), batch_size), desc=f"Testing {bits}-bit"):
+            for i in range(0, len(X_test), batch_size):
                 inputs = test_x[i:i+batch_size]
                 targets = test_y[i:i+batch_size]
                 
-                outputs = mq_model.forward_with_quant(inputs, bits)
+                outputs = ext_model(inputs)
                 _, predicted = torch.max(outputs, 1)
                 
                 total += targets.size(0)
                 correct += (predicted == targets).sum().item()
                 
             accuracy = 100 * correct / total
-            accuracies[bits] = accuracy
-    
-    print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/(len(X_train)/batch_size):.4f}")
-    for bits, acc in accuracies.items():
-        print(f"  {bits}-bit Accuracy: {acc:.2f}%")
+            print(f"(2)Extracted {bits}-bit model accuracy: {accuracy:.2f}%")
 
-# Save the trained model parameters
-model_path = "models/matquant/mnist_pt/mq_pt_model.pt"
-torch.save(model.state_dict(), model_path)
-print(f"\nSaved MatQuant model to {model_path}")
+    print("")
 
-# Extract models with different bit-widths
-print("\nExtracting models with different bit-widths...")
-extracted_models = {}
-for bits in config['quantization']['target_bits']:
-    extracted_models[bits] = mq_model.extract_model(bits)
-
-# Create mix-and-match model
-mix_config = {
-    'layers.0.weight': 8, 
-    'layers.3.weight': 4, 
-    'layers.6.weight': 2
-}
-mix_model = mq_model.mix_and_match(mix_config)
-
-print("\nTesting extracted and mix-and-match models...")
-# Test extracted models
-for bits, ext_model in extracted_models.items():
-    ext_model.eval()
+    # Test mix-and-match model
+    mix_model.eval()
     with torch.no_grad():
         correct = 0
         total = 0
@@ -183,40 +252,21 @@ for bits, ext_model in extracted_models.items():
             inputs = test_x[i:i+batch_size]
             targets = test_y[i:i+batch_size]
             
-            outputs = ext_model(inputs)
+            outputs = mix_model(inputs)
             _, predicted = torch.max(outputs, 1)
             
             total += targets.size(0)
             correct += (predicted == targets).sum().item()
             
         accuracy = 100 * correct / total
-        print(f"Extracted {bits}-bit model accuracy: {accuracy:.2f}%")
+        print(f"Mix-and-match model accuracy: {accuracy:.2f}%")
 
-print("")
-
-# Test mix-and-match model
-mix_model.eval()
-with torch.no_grad():
-    correct = 0
-    total = 0
-    for i in range(0, len(X_test), batch_size):
-        inputs = test_x[i:i+batch_size]
-        targets = test_y[i:i+batch_size]
-        
-        outputs = mix_model(inputs)
-        _, predicted = torch.max(outputs, 1)
-        
-        total += targets.size(0)
-        correct += (predicted == targets).sum().item()
-        
-    accuracy = 100 * correct / total
-    print(f"Mix-and-match model accuracy: {accuracy:.2f}%")
-
-print("")
+    print("")
+    
+    return extracted_models, mix_config
 
 # Convert to MLGen3 model
 print("Converting to MLGen3 model...")
-import argparse
 from mlgen3.models.nn.neuralnet import NeuralNet
 from mlgen3.models.nn.linear import Linear
 from mlgen3.models.nn.batchnorm import BatchNorm
@@ -227,21 +277,21 @@ def extract_mlgen3_model(pytorch_model):
     layers = []
     
     # Extract parameters from the PyTorch model
-    for i in range(0, len(pytorch_model.layers), 3):
-        if i+2 < len(pytorch_model.layers):
+    for i in range(0, len(pytorch_model.model), 3):
+        if i+2 < len(pytorch_model.model):
             # Linear layer
-            linear = pytorch_model.layers[i]
+            linear = pytorch_model.model[i]
             weight = linear.weight.detach().numpy()
             bias = linear.bias.detach().numpy()
             
             # Store layer index in name for easier mapping to mix-and-match config
-            layer_name = f"layers.{i // 3}.weight"
+            layer_name = f"model.{i}.weight"
             linear_layer = Linear(weight, bias)
             linear_layer.layer_name = layer_name  # Store name for reference
             layers.append(linear_layer)
             
             # BatchNorm layer
-            bn = pytorch_model.layers[i+1]
+            bn = pytorch_model.model[i+1]
             scale = bn.weight.detach().numpy()
             bias = bn.bias.detach().numpy()
             mean = bn.running_mean.detach().numpy()
@@ -250,12 +300,12 @@ def extract_mlgen3_model(pytorch_model):
             layers.append(BatchNorm(scale, bias, mean, var, eps))
             
             # Activation layer
-            if isinstance(pytorch_model.layers[i+2], nn.ReLU):
+            if isinstance(pytorch_model.model[i+2], nn.ReLU):
                 output_shape = weight.shape[0]
                 layers.append(Relu(output_shape))
         else:
             # Final Linear layer
-            linear = pytorch_model.layers[i]
+            linear = pytorch_model.model[i]
             weight = linear.weight.detach().numpy()
             bias = linear.bias.detach().numpy()
             layers.append(Linear(weight, bias))
@@ -264,13 +314,24 @@ def extract_mlgen3_model(pytorch_model):
     mlgen_model = NeuralNet.from_layers(layers)
     return mlgen_model
 
-def generate_uniform_model(bit_width, mq_model, X_test, y_test):
+def generate_uniform_model(bit_width, model_path=None):
     """Generate and deploy a uniform bit-width model with 8-bit storage and runtime slicing"""
     print(f"\nGenerating C++ code for {bit_width}-bit uniform model with 8-bit storage and runtime slicing...")
     from mlgen3.implementations.neuralnet.cpp.matquant_pt import MatQuantPT
     from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
 
-    mq_model_8bit = mq_model.extract_model(8)
+    # Load the saved model
+    if not model_path:
+        model_path = "models/matquant/mnist_pt/mq_pt_model.pt"
+    
+    model = MLP()
+    model.load_state_dict(torch.load(model_path))
+    
+    # Create MatQuant wrapper for extraction
+    mq_model_temp = MatQuant(model, config)
+    mq_model_temp.set_quantized_layers(config['quantization']['quantize_layers'])
+    
+    mq_model_8bit = mq_model_temp.extract_model(8)
     mlgen_model = extract_mlgen3_model(mq_model_8bit)
     mlgen_model.XTest = X_test
     mlgen_model.YTest = y_test
@@ -313,15 +374,24 @@ def generate_uniform_model(bit_width, mq_model, X_test, y_test):
     
     return results
 
-def generate_mix_model(mix_config, mq_model, X_test, y_test):
+def generate_mix_model(mix_config, model_path=None):
     """Generate and deploy a mix-and-match model with 8-bit storage and runtime slicing"""
     print(f"\nGenerating C++ code for mix-and-match model with 8-bit storage and runtime slicing...")
     from mlgen3.implementations.neuralnet.cpp.matquant_pt import MatQuantPT
     from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
     
-    # mix_model = mq_model.mix_and_match(mix_config)
-    mq_model_8bit = mq_model.extract_model(8)
-    # mlgen_model = extract_mlgen3_model(mix_model)
+    # Load the saved model
+    if not model_path:
+        model_path = "models/matquant/mnist_pt/mq_pt_model.pt"
+    
+    model = MLP()
+    model.load_state_dict(torch.load(model_path))
+    
+    # Create MatQuant wrapper for extraction
+    mq_model_temp = MatQuant(model, config)
+    mq_model_temp.set_quantized_layers(config['quantization']['quantize_layers'])
+    
+    mq_model_8bit = mq_model_temp.extract_model(8)
     mlgen_model = extract_mlgen3_model(mq_model_8bit)
     mlgen_model.XTest = X_test
     mlgen_model.YTest = y_test
@@ -369,49 +439,54 @@ def generate_mix_model(mix_config, mq_model, X_test, y_test):
 # Parse command line arguments
 def parse_args():
     parser = argparse.ArgumentParser(description='Generate MatQuant models with specified bit-widths using PyTorch binary loading')
+    parser.add_argument('--train', action='store_true', help='Train the model')
+    parser.add_argument('--epochs', type=int, default=3, help='Number of training epochs (default: 3)')
+    parser.add_argument('--generate', action='store_true', help='Generate C++ code')
     parser.add_argument('--uniform', type=int, nargs='+', help='Uniform bit-width models to generate (e.g. 8 4 2)')
     parser.add_argument('--mix', action='store_true', help='Generate mix-and-match model')
-    parser.add_argument('--custom-mix', type=str, help='Custom mix-and-match configuration in format "layer1:bits,layer2:bits" (e.g. "layers.0.weight:8,layers.3.weight:4,layers.6.weight:2")')
+    parser.add_argument('--custom-mix', type=str, help='Custom mix-and-match configuration in format "layer1:bits,layer2:bits"')
+    parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility (overrides config)')
     return parser.parse_args()
 
-args = parse_args()
+if __name__ == "__main__":
+    args = parse_args()
+    
+    if args.train:
+        model, mq_model = train_model(args)
+        extracted_models, mix_config = extract_and_test_models(mq_model)
+    
+    if args.generate:
+        # Process the models based on arguments
+        results = {}
 
-# Process the models based on arguments
-results = {}
-
-# Generate uniform bit-width models
-if args.uniform:
-    for bit_width in args.uniform:
-        if bit_width in extracted_models:
-            results[f"uniform_{bit_width}bit"] = generate_uniform_model(bit_width, mq_model, X_test, y_test)
+        # Generate uniform bit-width models
+        if args.uniform:
+            for bit_width in args.uniform:
+                results[f"uniform_{bit_width}bit"] = generate_uniform_model(bit_width)
         else:
-            print(f"Warning: No {bit_width}-bit model available. Available bit-widths: {list(extracted_models.keys())}")
+            # Default to 8-bit if no uniform bit-widths specified
+            results["uniform_8bit"] = generate_uniform_model(8)
 
-# Generate default mix-and-match model
-if args.mix:
-    default_mix = {
-        'layers.0.weight': 8, 
-        'layers.3.weight': 4, 
-        'layers.6.weight': 2
-    }
-    results["default_mix"] = generate_mix_model(default_mix, mq_model, X_test, y_test)
+        # Generate default mix-and-match model
+        if args.mix:
+            default_mix = {
+                'model.0.weight': 8, 
+                'model.3.weight': 4, 
+                'model.6.weight': 2
+            }
+            results["default_mix"] = generate_mix_model(default_mix)
 
-# Generate custom mix-and-match model
-if args.custom_mix:
-    try:
-        custom_mix = {}
-        for pair in args.custom_mix.split(','):
-            layer, bits = pair.split(':')
-            custom_mix[layer] = int(bits)
-        results["custom_mix"] = generate_mix_model(custom_mix, mq_model, X_test, y_test)
-    except Exception as e:
-        print(f"Error parsing custom mix-and-match configuration: {e}")
-        print("Format should be: 'layers.0.weight:8,layers.3.weight:4,layers.6.weight:2'")
+        # Generate custom mix-and-match model
+        if args.custom_mix:
+            try:
+                custom_mix = {}
+                for pair in args.custom_mix.split(','):
+                    layer, bits = pair.split(':')
+                    custom_mix[layer] = int(bits)
+                results["custom_mix"] = generate_mix_model(custom_mix)
+            except Exception as e:
+                print(f"Error parsing custom mix-and-match configuration: {e}")
+                print("Format should be: 'model.0.weight:8,model.3.weight:4,model.6.weight:2'")
 
-# If no arguments provided, generate a default 8-bit model
-if not args.uniform and not args.mix and not args.custom_mix:
-    print("No specific models requested. Generating default 8-bit model.")
-    results["uniform_8bit"] = generate_uniform_model(8, mq_model, X_test, y_test)
-
-print("\nMatQuant PyTorch implementation complete!")
-print(f"Generated models: {list(results.keys())}")
+        print("\nMatQuant PyTorch implementation complete!")
+        print(f"Generated models: {list(results.keys())}")
