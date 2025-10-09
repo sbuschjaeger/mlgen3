@@ -217,34 +217,7 @@ def train_model(args):
             print(f"(1)  {bits}-bit Accuracy: {acc:.2f}%")
 
         
-        # print("")
-        # # Evaluate extract_model()
-        # model.eval()
-        
-        # extracted_models = {}
-        # for bits in config['quantization']['target_bits']:
-        #     extracted_models[bits] = mq_model.extract_model(bits)
-
-        # # Test extracted models
-        # for bits, ext_model in extracted_models.items():
-        #     ext_model.eval()
-        #     with torch.no_grad():
-        #         correct = 0
-        #         total = 0
-        #         for i in tqdm(range(0, len(X_test), batch_size), desc=f"(1.2)Testing extracted {bits}-bit"):
-        #             inputs = test_x[i:i+batch_size].to(device)
-        #             targets = test_y[i:i+batch_size].to(device)
-                    
-        #             outputs = ext_model(inputs)
-        #             _, predicted = torch.max(outputs, 1)
-                    
-        #             total += targets.size(0)
-        #             correct += (predicted == targets).sum().item()
-                    
-        #         accuracy = 100 * correct / total
-        #         print(f"(1.2)Extracted {bits}-bit model accuracy: {accuracy:.2f}%")
-
-
+        print("")
         
     
     # Save the trained model parameters

@@ -11,17 +11,6 @@ from copy import deepcopy
 # https://github.com/microsoft/BitBLAS/blob/main/integration/BitNet/utils_quant#L104.py
 
 
-# matquant.py contains python code to run matryoshka quantization on any specified layer of a neural network. it uses minmax quantization to quantize the weights, bias, and activations (each can be specified whether to quantize or not) to 8-bit, then from the quantized value, it slices the number of required bits to be used for the (integer) calculations. for each specified bit_width (to be trained for), it runs a forward pass and returns a loss value for each of them, which are then weighted using specified loss_weights (see matquant_loss and multi_precision_forward). 
-# if needed, a n-bit model (n<=8, i.e. max_bits) can be extracted from the matquant model (see extract_model)
-# the matquant model can also be specified to have different bit-widths in each layers, and extracts a corresponding mix_and_match model.
-# adapt the code of the mlgen3 framework in order to implement matquant quantization. generate necessary files in the appropriate directories, such that current functionality is preserved, and the addition of matquant is separated, and used only when specified.
-# test the implementation with a test script in test_custom_mq_mlp.py in which an mlp model with mnist is trained in pytorch using matquant technique.
-# store the trained matquant model as a pt file.
-# then, using the mlgen3 framework, implement the quantization, dequantization, and bit slicing functions in c++.
-# generate the corresponding c++ code, import the matquant pt model, and based on the specified configuration, extract the trained matquant model to a n-bit model (n<=8) or a mix_and_match model.
-# then, run inference in c++ using the generated code.
-
-
 class MQ_ActivationQuantizer(nn.Module):
     """Hook for quantizing activations in MatQuant."""
     def __init__(self, bits, device=None, rounding=True):
@@ -428,14 +417,6 @@ class MatQuant(nn.Module):
 
             # Quantize weights for target layers
             for name, param in self.get_quantizable_params():
-
-                # if target_bits == 8 and not self.training and name == "model.0.weight":
-                #     print(f"(1.1)FW with Quant for layer {name} to {target_bits}-bit")
-                #     print(f"(1.1)  Original weights: min {param.data.min().item():.6f}, max {param.data.max().item():.6f}"
-                #         f", mean {param.data.mean().item():.6f}, std {param.data.std().item():.6f}")
-                #     print(f"(1.1)  Sample weights: {param.data.view(-1)[:5].cpu().numpy()}")
-                #     print("")
-
                 # Save original weights
                 original_weights[name] = param.data.clone()
 
@@ -452,18 +433,9 @@ class MatQuant(nn.Module):
                 # Replace the weight with (de)quantized version using STE
                 param.data = self.straight_through_estimator(dequantized_w, param.data)
 
-        # Handle activation quantization if needed
         # Note: Activation quantization is handled automatically through forward hooks
         # registered in _register_activation_hooks(). The hooks apply MQ_ActivationQuantizer
         # to layer outputs during the forward pass.
-        if self.quantize_target in ['activations_only', 'weights_and_activations']:
-            # Temporarily update activation quantizers to use the target bit-width
-            for hook in self.activation_hooks:
-                # Access the quantizer from the hook's callback
-                # The hook callback is a lambda that captures the quantizer
-                if hasattr(hook, '__self__'):
-                    # This is a bound method, get the quantizer from it
-                    pass  # Already registered with correct bits via hooks
         
         # Forward pass with quantized weights and/or activations
         # Activation quantization is applied automatically by registered hooks
@@ -569,87 +541,17 @@ class MatQuant(nn.Module):
         if self.quantize_target in ['weights_only', 'weights_and_activations']:
             # Quantize weights to max_train_bits first
             for name, param in self.get_quantizable_params(extracted_model):
-            # for name, param in extracted_model.named_parameters():
-                # if any(layer_path in name for layer_path in self.layer_paths):
-                #     if 'weight' in name or (self.quantize_bias and 'bias' in name):
-
-                # if target_bits == 8 and name == "model.0.weight":
-                #     print(f"(1.2)Extracting layer {name} to {target_bits}-bit")
-                #     print(f"(1.2)  Original weights: min {param.data.min().item():.6f}, max {param.data.max().item():.6f}"
-                #         f", mean {param.data.mean().item():.6f}, std {param.data.std().item():.6f}")
-                #     print(f"(1.2)  Sample weights: {param.data.view(-1)[:5].cpu().numpy()}")
-                #     print("")
 
                 with torch.no_grad():
                     # Quantize to 8-bit
                     quantized_w, scaling_factor, zero_point = self.quantize(param.data, self.max_train_bits)
 
                     # Slice to target bits
-                    # if target_bits < self.max_train_bits:
-                    sliced_w = self.slice_bits(quantized_w, self.max_train_bits, target_bits, rounding)
+                    if target_bits < self.max_train_bits:
+                        quantized_w = self.slice_bits(quantized_w, self.max_train_bits, target_bits, rounding)
                     
                     # Dequantize
-                    param.data = self.dequantize(sliced_w, scaling_factor, zero_point)
-
-        
-        
-        # # Handle activation quantization if needed
-        # # Note: For extracted models, we register fresh hooks with the specific target bit-width
-        # # This replaces the multi-bit quantizers used during training with single-bit quantizers
-        # if self.quantize_target in ['activations_only', 'weights_and_activations']:
-        #     # Remove any existing hooks from the extracted model
-        #     for module in extracted_model.modules():
-        #         if hasattr(module, '_forward_hooks'):
-        #             module._forward_hooks.clear()
-            
-        #     # Create fresh activation quantizers for the extracted model
-        #     def get_layer_from_path(model, path):
-        #         parts = path.split('.')
-        #         if parts[0] == 'model':
-        #             parts = parts[1:]
-                
-        #         current = model
-                
-        #         # Handle both VGG-style and MLP-style structures
-        #         if hasattr(current, 'model') and isinstance(current.model, nn.Sequential):
-        #             current = current.model
-                
-        #         for part in parts:
-        #             if part == "weight" or part == "bias":
-        #                 continue
-        #             if part.isdigit():
-        #                 current = current[int(part)]
-        #             else:
-        #                 current = getattr(current, part)
-        #         return current
-            
-        #     # Register new hooks with the target bit-width
-        #     for path in self.layer_paths:
-        #         try:
-        #             # print(f"Registering activation hook for {path} at {target_bits}-bit")
-        #             # Get the layer (e.g., Linear or Conv2d)
-        #             layer_parts = path.split('.')
-        #             layer_path = '.'.join(layer_parts[:-1])  # Remove '.weight' suffix
-        #             layer = get_layer_from_path(extracted_model, layer_path)
-                    
-        #             # Create a fresh quantizer for this specific bit-width
-        #             quantizer = MQ_ActivationQuantizer(bits=target_bits, device=self.device)
-                    
-        #             # Register hook
-        #             layer.register_forward_hook(
-        #                 lambda module, input, output, q=quantizer: q(output)
-        #             )
-        #         except Exception as e:
-        #             print(f"Warning: Could not register activation hook for {path}: {e}")
-        #             # Print detailed model structure to help debug
-        #             if self.model is not None:
-        #                 print(f"Model structure: {type(self.model).__name__}")
-        #                 if hasattr(self.model, "model"):
-        #                     print(f"Inner model structure: {type(self.model.model).__name__}")
-        #                     # Print first few layers of the model for debugging
-        #                     if isinstance(self.model.model, nn.Sequential):
-        #                         for i, layer in enumerate(list(self.model.model)):
-        #                             print(f"  Layer {i}: {type(layer).__name__}")
+                    param.data = self.dequantize(quantized_w, scaling_factor, zero_point)
 
         return extracted_model
     
@@ -702,59 +604,7 @@ class MatQuant(nn.Module):
                     quantized_w = self.slice_bits(quantized_w, self.max_train_bits, bits, rounding)
                     
                 # Dequantize to get the final weights
-                dequantized_w = self.dequantize(quantized_w, sf, zp)
+                param.data = self.dequantize(quantized_w, sf, zp)
                 
-                # Set the quantized weights
-                param.data = dequantized_w
-
-        # Add activation quantization hooks if needed
-        if self.quantize_target in ['activations_only', 'weights_and_activations']:
-            # For activation quantization in mix-and-match, we use the bit-width 
-            # of the corresponding weight layer or a default value
-            for path in self.layer_paths:
-                # Get the base layer path (without .weight)
-                layer_path = path.replace('.weight', '') if path.endswith('.weight') else path
-                
-                # Determine the bit-width for this activation
-                activation_bits = bit_config.get(path, self.max_train_bits) if path in bit_config else self.max_train_bits
-                
-                try:
-                    # Find the layer
-                    parts = layer_path.split('.')
-                    
-                    # Remove 'model.' prefix if it exists since we're already starting with mixed_model
-                    if parts[0] == 'model':
-                        parts = parts[1:]
-                    
-                    current = mixed_model
-                    
-                    # Handle both VGG-style and MLP-style structures
-                    if hasattr(current, 'model') and isinstance(current.model, nn.Sequential):
-                        current = current.model
-                    
-                    for part in parts:
-                        if part == "weight" or part == "bias":
-                            continue
-                        if part.isdigit():
-                            try:
-                                current = current[int(part)]
-                            except (TypeError, IndexError):
-                                if hasattr(current, part):
-                                    current = getattr(current, part)
-                                else:
-                                    raise AttributeError(f"Cannot access {part} in {type(current)}")
-                        else:
-                            if hasattr(current, part):
-                                current = getattr(current, part)
-                            else:
-                                raise AttributeError(f"Cannot find attribute {part} in {type(current)}")
-                
-                    # Only register hooks for layers that have activations
-                    if isinstance(current, (nn.Conv2d, nn.Linear, nn.ReLU, nn.Hardtanh)):
-                        # Register the activation quantizer with the appropriate bit-width
-                        quantizer = MQ_ActivationQuantizer(activation_bits, self.device, rounding)
-                        current.register_forward_hook(lambda module, input_val, output: quantizer(output))
-                except (AttributeError, IndexError) as e:
-                    print(f"Warning: Could not register activation hook for layer {layer_path}: {e}")
         return mixed_model
 

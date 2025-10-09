@@ -231,7 +231,10 @@ def train_model(args):
         
         for bits, acc in accuracies.items():
             print(f"  {bits}-bit Accuracy: {acc:.2f}%")
+
+        print("")
     
+
     # Save the trained model parameters
     model_path = config['evaluation']['model_path']
     # Move model to CPU before saving to ensure compatibility
@@ -398,7 +401,7 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None):
         implementation, 
         measure_accuracy=True, 
         measure_time=True,
-        test_samples=1000,
+        test_samples=100,
         filename=f"matquant_pt_vgg8_{config_name}"
     )
     
