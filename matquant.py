@@ -423,6 +423,7 @@ class MatQuant(nn.Module):
                 # Quantize to max_train_bits first
                 quantized_w, scaling_factor, zero_point = self.quantize(param.data, self.max_train_bits)
 
+
                 # If we need a lower precision, slice the bits
                 if target_bits < self.max_train_bits:
                     sliced_w = self.slice_bits(quantized_w, self.max_train_bits, target_bits, rounding)
@@ -536,6 +537,28 @@ class MatQuant(nn.Module):
         """
         # Create a copy of the model
         extracted_model = deepcopy(self.model)
+
+        # # Print model information
+        # if target_bits == 8:
+        #     print(f"\n{'='*80}")
+
+        #     print(f"Original model type: {type(self.model).__name__}")
+        #     print(f"Extracted model type: {type(extracted_model).__name__}")
+        #     print(f"Quantization target: {self.quantize_target}")
+        #     print(f"Number of quantizable parameters: {len(self.get_quantizable_params(extracted_model))}")
+            
+        #     print(f"Model structure:")
+        #     for i, (name, module) in enumerate(extracted_model.named_modules()):
+        #         print(f"  {name}: {type(module).__name__}")
+        
+        #     print(f"{'='*80}\n")
+
+        #     for name, module in extracted_model.named_modules():
+        #         print(f"+++++++++ {name}: {type(module).__name__} +++++++++++++")
+
+        #         print("++++++++++++++++++++++++++++")
+
+        # print("")
         
         # Handle weight quantization if needed
         if self.quantize_target in ['weights_only', 'weights_and_activations']:
@@ -546,12 +569,28 @@ class MatQuant(nn.Module):
                     # Quantize to 8-bit
                     quantized_w, scaling_factor, zero_point = self.quantize(param.data, self.max_train_bits)
 
+                    # if target_bits == 8:
+                    #     print(f"+++++++++{name}+++++++++++++")
+                    #     if 'weight' in name:
+                    #         print(f"Sample quantized weights: {quantized_w[0][:1]}")
+                    #     if 'bias' in name:
+                    #         print(f"Sample quantized bias: {quantized_w[:10]}")
+                    #     print("++++++++++++++++++++++++++++")
+
                     # Slice to target bits
                     if target_bits < self.max_train_bits:
                         quantized_w = self.slice_bits(quantized_w, self.max_train_bits, target_bits, rounding)
                     
                     # Dequantize
                     param.data = self.dequantize(quantized_w, scaling_factor, zero_point)
+
+                    # if target_bits == 8:
+                    #     print(f"+++++++++{name}+++++++++++++")
+                    #     if 'weight' in name:
+                    #         print(f"Sample dequantized weights: {param.data[:1]}")
+                    #     if 'bias' in name:
+                    #         print(f"Sample dequantized bias: {param.data[:10]}")
+                    #     print("++++++++++++++++++++++++++++")
 
         return extracted_model
     

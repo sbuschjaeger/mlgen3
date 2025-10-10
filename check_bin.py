@@ -12,15 +12,16 @@ def read_binary_file(file_path):
 
 def parse_weight_file(data, print_stats=True, plot_hist=True, max_elements=20):
     """Parse weight binary file and print stats."""
-    # Assuming int8 data for weights
-    weights = np.frombuffer(data, dtype=np.int8)
+    # Assuming uint8 data for weights
+    weights = np.frombuffer(data, dtype=np.uint8)
     
     print(f"Shape: {weights.shape}")
-    print(f"Data type: int8")
+    print(f"Data type: uint8")
     print(f"Min value: {weights.min()}")
     print(f"Max value: {weights.max()}")
     print(f"Mean value: {weights.mean():.4f}")
     print(f"First {max_elements} values: {weights[:max_elements]}")
+    # print(f"All values: {weights}")
     
     if plot_hist:
         plt.figure(figsize=(10, 5))
@@ -88,6 +89,7 @@ def analyze_bin_files(directory):
                 print(f"Min value: {dequantized.min():.6f}")
                 print(f"Max value: {dequantized.max():.6f}")
                 print(f"Mean value: {dequantized.mean():.6f}")
+                print(f"First 10 weights: {weights[:10]}")
                 print(f"First 10 dequantized values: {[f'{v:.6f}' for v in dequantized[:10]]}")
 
 if __name__ == "__main__":

@@ -330,7 +330,7 @@ def generate_uniform_model(bit_width, model_path=None, seed=707):
         implementation, 
         measure_accuracy=True, 
         measure_time=True,
-        test_samples=1000,
+        test_samples=10000,
         filename=f"matquant_pt_{bit_width}bit",
         seed=seed
     )

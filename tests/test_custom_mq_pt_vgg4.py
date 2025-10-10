@@ -300,14 +300,13 @@ def extract_and_test_models(mq_model):
     
     return extracted_models, mix_config
 
-def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707):
-    """Generate C++ code for MatQuant PyTorch VGG model"""
+def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707, debug=False):
+    """Generate C++ code for MatQuant PyTorch VGG4 model"""
     if not model_path:
         model_path = config['evaluation']['model_path']
         
-    print(f"\nGenerating C++ code for {'mix-and-match' if mix_config else bit_width}-bit VGG model...")
-    print(f"Using model parameters from: {model_path}\n")
-
+    print(f"\nGenerating C++ code for {'mix-and-match' if mix_config else bit_width}-bit VGG4 model...")
+    
     # Load the saved model state dict
     saved_model_state = torch.load(model_path)
     
@@ -365,7 +364,8 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707):
         mix_and_match_config=mix_config,
         input_height=28,
         input_width=28,
-        input_channels=1
+        input_channels=1,
+        debug=debug  # Pass debug flag
     )
     
     implementation.set_model_binary_dir(binary_dir)
@@ -375,7 +375,7 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707):
         implementation, 
         measure_accuracy=True, 
         measure_time=True,
-        test_samples=100,
+        test_samples=1,  # Use single sample for debugging
         filename=f"matquant_pt_vgg4_{config_name}",
         seed=seed
     )
@@ -403,7 +403,67 @@ def parse_args():
     parser.add_argument('--mix', action='store_true', help='Generate mix-and-match model')
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility (overrides config)')
     parser.add_argument('--inference-seed', type=int, default=707, help='Random seed for C++ inference (default: 707)')
+    parser.add_argument('--debug', action='store_true', help='Enable debug output during inference')
     return parser.parse_args()
+
+def test_python_inference(model_path=None, seed=707, debug=False):
+    """Test Python inference with layer-by-layer debug output"""
+    if not model_path:
+        model_path = config['evaluation']['model_path']
+    
+    print(f"\n{'='*80}")
+    print("Testing Python Inference with Debug Output")
+    print(f"{'='*80}\n")
+    
+    # Load the saved model
+    model = VGG()
+    model.load_state_dict(torch.load(model_path))
+    model.eval()
+    
+    # Set random seed
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    
+    # Get a single test sample
+    sample_idx = 0
+    test_sample = test_x[sample_idx:sample_idx+1]
+    test_label = test_y[sample_idx]
+    
+    print(f"Test sample shape: {test_sample.shape}")
+    print(f"Test label: {test_label.item()}")
+    print(f"\nInput statistics:")
+    print(f"  Min: {test_sample.min().item():.6f}")
+    print(f"  Max: {test_sample.max().item():.6f}")
+    print(f"  Mean: {test_sample.mean().item():.6f}")
+    print(f"  First 10 values: {test_sample.flatten()[:10].numpy()}\n")
+    
+    # Forward pass with debug output
+    x = test_sample
+    with torch.no_grad():
+        for i, layer in enumerate(model.model):
+            x = layer(x)
+            
+            if debug:
+                layer_name = type(layer).__name__
+                print(f"Layer {i}: {layer_name}")
+                print(f"  Output shape: {x.shape}")
+                print(f"  Min: {x.min().item():.6f}, Max: {x.max().item():.6f}, Mean: {x.mean().item():.6f}")
+                
+                # Print first few values for comparison
+                if len(x.shape) == 4:  # Conv/MaxPool output
+                    print(f"  First channel, first row (first 5 values): {x[0, 0, 0, :5].numpy()}")
+                elif len(x.shape) == 2:  # Linear output
+                    print(f"  First 10 values: {x[0, :10].numpy()}")
+                print()
+    
+    # Get prediction
+    _, predicted = torch.max(x, 1)
+    print(f"Final output: {x[0].numpy()}")
+    print(f"Predicted class: {predicted.item()}")
+    print(f"Correct class: {test_label.item()}")
+    print(f"Prediction correct: {predicted.item() == test_label.item()}\n")
+    
+    return x[0].numpy()
 
 if __name__ == "__main__":
     args = parse_args()
@@ -422,12 +482,20 @@ if __name__ == "__main__":
         extracted_models, mix_config = extract_and_test_models(mq_model)
     
     if args.generate:
+        # Test Python inference first if debug is enabled
+        if args.debug:
+            test_python_inference(debug=True, seed=args.inference_seed)
+        
         results = {}
         inference_seed = args.inference_seed
         
         # Generate uniform bit-width models
         for bit_width in args.uniform:
-            results[f"uniform_{bit_width}bit"] = generate_cpp_model(bit_width, seed=inference_seed)
+            results[f"uniform_{bit_width}bit"] = generate_cpp_model(
+                bit_width, 
+                seed=inference_seed,
+                debug=args.debug
+            )
         
         # Generate mix-and-match model
         if args.mix:
@@ -437,7 +505,12 @@ if __name__ == "__main__":
                 'model.9.weight': 2,
                 'model.11.weight': 2
             }
-            results["mix_and_match"] = generate_cpp_model(8, default_mix, seed=inference_seed)
+            results["mix_and_match"] = generate_cpp_model(
+                8, 
+                default_mix, 
+                seed=inference_seed,
+                debug=args.debug
+            )
         
         print("\nGeneration complete. Results summary:")
         for model_name, res in results.items():

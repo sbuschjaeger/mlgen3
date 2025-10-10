@@ -13,7 +13,7 @@ class MatQuantPT_VGG(Implementation):
     
     def __init__(self, model, feature_type="float", label_type="float", internal_type="float", 
                  target_bits=8, mix_and_match_config=None, align=None, 
-                 input_height=28, input_width=28, input_channels=1):
+                 input_height=28, input_width=28, input_channels=1, debug=False):
         """Initialize MatQuant PyTorch VGG implementation."""
         super().__init__(model, feature_type, label_type)
         self.internal_type = internal_type
@@ -25,6 +25,7 @@ class MatQuantPT_VGG(Implementation):
         self.input_height = input_height
         self.input_width = input_width
         self.input_channels = input_channels
+        self.debug = debug  # Add debug flag
         
         # Will be populated during model analysis
         self.layer_info = {}  # Store info about each layer
@@ -225,6 +226,7 @@ class MatQuantPT_VGG(Implementation):
             if layer_idx == 0:
                 print("=========================================================================")
                 print(f"Weight stats for layer {layer_idx}: min={w_min}, max={w_max}, scale={scale}, zero_point={zero_point}")
+                print(f"Sample weights: {weight_flat[:10]}")
                 print(f"Sample quantized weights: {quantized_weights[:10]}")
                 print("=========================================================================")
             
@@ -254,6 +256,7 @@ class MatQuantPT_VGG(Implementation):
                 if layer_idx == 0:
                     print("=========================================================================")
                     print(f"Bias stats for layer {layer_idx}: min={b_min}, max={b_max}, scale={scale}, zero_point={zero_point}")
+                    print(f"Sample biases: {bias_tensor[:10]}")
                     print(f"Sample quantized bias: {quantized_bias[:10]}")
                     print("=========================================================================")
                 
@@ -465,9 +468,6 @@ class MatQuantPT_VGG(Implementation):
         return "\n".join(declarations)
     
     def _generate_layer_implementations(self):
-
-
-        # print("\n=============generate layer implementations...===============")
         """Generate C++ code for VGG model layer implementations."""
         if not hasattr(self.model, 'model') or not isinstance(self.model.model, nn.Sequential):
             return "// Model structure unknown, unable to generate layer implementations"
@@ -478,6 +478,19 @@ class MatQuantPT_VGG(Implementation):
         implementations = []
         implementations.append("// Reshape input to 3D tensor (for convolution)")
         implementations.append("auto input_3d = cnn_utils::reshape_input_to_3d(x, INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH);")
+        
+        if self.debug:
+            implementations.append("")
+            implementations.append("#ifdef DEBUG_MODE")
+            implementations.append('std::cout << "\\nInput statistics:" << std::endl;')
+            implementations.append('std::cout << "  Shape: [" << INPUT_CHANNELS << ", " << INPUT_HEIGHT << ", " << INPUT_WIDTH << "]" << std::endl;')
+            implementations.append('std::cout << "  First 10 values: ";')
+            implementations.append('for (int i = 0; i < 10 && i < x.size(); i++) {')
+            implementations.append('    std::cout << x[i] << " ";')
+            implementations.append('}')
+            implementations.append('std::cout << std::endl;')
+            implementations.append("#endif")
+        
         implementations.append("")
         
         # Track current tensor shape and format
@@ -554,6 +567,15 @@ class MatQuantPT_VGG(Implementation):
                 implementations.append("        }")
                 implementations.append("    }")
                 implementations.append("}")
+                
+                if self.debug:
+                    implementations.append("")
+                    implementations.append("#ifdef DEBUG_MODE")
+                    implementations.append(f'std::cout << "\\nLayer {i}: Conv2d" << std::endl;')
+                    implementations.append(f'std::cout << "  Output shape: [{out_channels}, {out_h}, {out_w}]" << std::endl;')
+                    implementations.append(f'cnn_utils::print_3d_tensor_stats(layer_{i}_3d, "Conv2d output");')
+                    implementations.append("#endif")
+                
                 implementations.append("")
                 implementations.append(f"// Copy to layer_{i} (flatten for later use)")
                 implementations.append(f"for (int c = 0; c < {out_channels}; c++) {{")
@@ -606,6 +628,15 @@ class MatQuantPT_VGG(Implementation):
                 implementations.append("        }")
                 implementations.append("    }")
                 implementations.append("}")
+                
+                if self.debug:
+                    implementations.append("")
+                    implementations.append("#ifdef DEBUG_MODE")
+                    implementations.append(f'std::cout << "\\nLayer {i}: MaxPool2d" << std::endl;')
+                    implementations.append(f'std::cout << "  Output shape: [{out_c}, {out_h}, {out_w}]" << std::endl;')
+                    implementations.append(f'cnn_utils::print_3d_tensor_stats(layer_{i}_3d, "MaxPool2d output");')
+                    implementations.append("#endif")
+                
                 implementations.append("")
                 implementations.append(f"// Copy to layer_{i} (flatten for later use)")
                 implementations.append(f"for (int c = 0; c < {out_c}; c++) {{")
@@ -626,7 +657,12 @@ class MatQuantPT_VGG(Implementation):
                     implementations.append(f"// Layer {i}: BatchNorm2d")
                     implementations.append(f"std::vector<std::vector<std::vector<float>>> layer_{i}_3d = {input_name};")
                     
-                    # Update current format and shape
+                    if self.debug:
+                        implementations.append("")
+                        implementations.append("#ifdef DEBUG_MODE")
+                        implementations.append(f'std::cout << "\\nLayer {i}: BatchNorm2d (pass-through)" << std::endl;')
+                        implementations.append("#endif")
+                    
                     current_format = "3d"
                 else:
                     implementations.append(f"// Layer {i}: BatchNorm2d (skipped for non-3D tensor)")
@@ -637,11 +673,25 @@ class MatQuantPT_VGG(Implementation):
                     implementations.append(f"// Layer {i}: ReLU")
                     implementations.append(f"cnn_utils::apply_relu_3d({input_name});")
                     implementations.append(f"std::vector<std::vector<std::vector<float>>> layer_{i}_3d = {input_name};")
+                    
+                    if self.debug:
+                        implementations.append("")
+                        implementations.append("#ifdef DEBUG_MODE")
+                        implementations.append(f'std::cout << "\\nLayer {i}: ReLU" << std::endl;')
+                        implementations.append(f'cnn_utils::print_3d_tensor_stats(layer_{i}_3d, "ReLU output");')
+                        implementations.append("#endif")
                 else:
                     implementations.append(f"// Layer {i}: ReLU")
                     implementations.append(f"for (unsigned int j = 0; j < {out_shape[0]}; j++) {{")
                     implementations.append(f"    layer_{i}[j] = std::max(0.0f, {input_name}[j]);")
                     implementations.append("}")
+                    
+                    if self.debug:
+                        implementations.append("")
+                        implementations.append("#ifdef DEBUG_MODE")
+                        implementations.append(f'std::cout << "\\nLayer {i}: ReLU" << std::endl;')
+                        implementations.append(f'cnn_utils::print_1d_tensor_stats(layer_{i}, {out_shape[0]}, "ReLU output");')
+                        implementations.append("#endif")
                 
             elif isinstance(layer, nn.Flatten):
                 implementations.append(f"// Layer {i}: Flatten")
@@ -662,7 +712,14 @@ class MatQuantPT_VGG(Implementation):
                     implementations.append("    }")
                     implementations.append("}")
                     
-                    # Update current format and shape
+                    if self.debug:
+                        implementations.append("")
+                        implementations.append("#ifdef DEBUG_MODE")
+                        implementations.append(f'std::cout << "\\nLayer {i}: Flatten" << std::endl;')
+                        implementations.append(f'std::cout << "  Output shape: [{flattened_size}]" << std::endl;')
+                        implementations.append(f'cnn_utils::print_1d_tensor_stats(layer_{i}.data(), {flattened_size}, "Flatten output");')
+                        implementations.append("#endif")
+                    
                     current_format = "1d"
                 else:
                     implementations.append(f"// Already in 1D format, no need to flatten")
@@ -688,7 +745,14 @@ class MatQuantPT_VGG(Implementation):
                 implementations.append("    }")
                 implementations.append("}")
                 
-                # Update current format and shape
+                if self.debug:
+                    implementations.append("")
+                    implementations.append("#ifdef DEBUG_MODE")
+                    implementations.append(f'std::cout << "\\nLayer {i}: Linear" << std::endl;')
+                    implementations.append(f'std::cout << "  Output shape: [{out_features}]" << std::endl;')
+                    implementations.append(f'cnn_utils::print_1d_tensor_stats(layer_{i}, {out_features}, "Linear output");')
+                    implementations.append("#endif")
+                
                 current_format = "1d"
                 current_shape = out_shape
         
@@ -699,6 +763,16 @@ class MatQuantPT_VGG(Implementation):
             final_size = final_shape[0] if len(final_shape) == 1 else np.prod(final_shape)
             
             implementations.append(f"\n// Return the output of the final layer")
+            
+            if self.debug:
+                implementations.append("#ifdef DEBUG_MODE")
+                implementations.append('std::cout << "\\nFinal output: ";')
+                implementations.append(f'for (int i = 0; i < {final_size}; i++) {{')
+                implementations.append(f'    std::cout << layer_{final_layer_idx}[i] << " ";')
+                implementations.append('}')
+                implementations.append('std::cout << std::endl;')
+                implementations.append("#endif")
+            
             implementations.append(f"return std::vector<float>(layer_{final_layer_idx}, layer_{final_layer_idx} + {final_size});")
         else:
             implementations.append("\n// No layers found in the model")
@@ -758,8 +832,6 @@ class MatQuantPT_VGG(Implementation):
         return code
     
     def _generate_header_code(self):
-
-        # print("\n=============generate header code...===============")
         """Generate the complete C++ header code."""
         total_layers = 0
         if hasattr(self.model, 'model') and isinstance(self.model.model, nn.Sequential):
@@ -776,6 +848,9 @@ class MatQuantPT_VGG(Implementation):
             #include <limits>
             #include <fstream>
             #include <iostream>
+
+            // Uncomment to enable debug output
+            {'#define DEBUG_MODE' if self.debug else '// #define DEBUG_MODE'}
 
             // Template function to load binary data
             template <typename T>
@@ -926,6 +1001,61 @@ class MatQuantPT_VGG(Implementation):
                             }}
                         }}
                     }}
+                }}
+                
+                // Print statistics for 3D tensor (for debugging)
+                template <typename T>
+                void print_3d_tensor_stats(const std::vector<std::vector<std::vector<T>>>& tensor, const std::string& name) {{
+                    T min_val = std::numeric_limits<T>::max();
+                    T max_val = std::numeric_limits<T>::lowest();
+                    T sum = 0;
+                    int count = 0;
+                    
+                    for (const auto& channel : tensor) {{
+                        for (const auto& row : channel) {{
+                            for (const auto& val : row) {{
+                                min_val = std::min(min_val, val);
+                                max_val = std::max(max_val, val);
+                                sum += val;
+                                count++;
+                            }}
+                        }}
+                    }}
+                    
+                    std::cout << "  " << name << " - Min: " << min_val << ", Max: " << max_val 
+                              << ", Mean: " << (count > 0 ? sum / count : 0) << std::endl;
+                    
+                    // Print first row of first channel
+                    if (!tensor.empty() && !tensor[0].empty() && !tensor[0][0].empty()) {{
+                        std::cout << "  First channel, first row (first 5 values): ";
+                        for (size_t i = 0; i < std::min(size_t(5), tensor[0][0].size()); i++) {{
+                            std::cout << tensor[0][0][i] << " ";
+                        }}
+                        std::cout << std::endl;
+                    }}
+                }}
+                
+                // Print statistics for 1D tensor (for debugging)
+                template <typename T>
+                void print_1d_tensor_stats(const T* tensor, int size, const std::string& name) {{
+                    T min_val = std::numeric_limits<T>::max();
+                    T max_val = std::numeric_limits<T>::lowest();
+                    T sum = 0;
+                    
+                    for (int i = 0; i < size; i++) {{
+                        min_val = std::min(min_val, tensor[i]);
+                        max_val = std::max(max_val, tensor[i]);
+                        sum += tensor[i];
+                    }}
+                    
+                    std::cout << "  " << name << " - Min: " << min_val << ", Max: " << max_val 
+                              << ", Mean: " << (size > 0 ? sum / size : 0) << std::endl;
+                    
+                    std::cout << "  First 10 values: ";
+                    for (int i = 0; i < std::min(10, size); i++) {{
+                        std::cout << tensor[i] << " ";
+                    }}
+                    std::cout << std::endl;
                 }}
             }}
 
