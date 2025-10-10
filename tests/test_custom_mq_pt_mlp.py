@@ -33,6 +33,12 @@ train_y = torch.tensor(y_train, dtype=torch.long)
 test_x = torch.tensor(X_test, dtype=torch.float32)
 test_y = torch.tensor(y_test, dtype=torch.long)
 
+# # Print dataset sizes
+# print(f"Training set size: {train_x.shape}")
+# print(f"Training labels size: {train_y.shape}")
+# print(f"Test set size: {test_x.shape}")
+# print(f"Test labels size: {test_y.shape}")
+
 # Define MLP model
 class MLP(nn.Module):
     def __init__(self):
@@ -288,7 +294,7 @@ def extract_mlgen3_model(pytorch_model):
     mlgen_model = NeuralNet.from_layers(layers)
     return mlgen_model
 
-def generate_uniform_model(bit_width, model_path=None):
+def generate_uniform_model(bit_width, model_path=None, seed=707):
     """Generate and deploy a uniform bit-width model with 8-bit storage and runtime slicing"""
     print(f"\nGenerating C++ code for {bit_width}-bit uniform model with 8-bit storage and runtime slicing...")
     from mlgen3.implementations.neuralnet.cpp.matquant_pt import MatQuantPT
@@ -330,7 +336,8 @@ def generate_uniform_model(bit_width, model_path=None):
         measure_accuracy=True, 
         measure_time=True,
         test_samples=1000,
-        filename=f"matquant_pt_{bit_width}bit"
+        filename=f"matquant_pt_{bit_width}bit",
+        seed=seed
     )
     
     # Now implement after the filename has been set
@@ -348,7 +355,7 @@ def generate_uniform_model(bit_width, model_path=None):
     
     return results
 
-def generate_mix_model(mix_config, model_path=None):
+def generate_mix_model(mix_config, model_path=None, seed=707):
     """Generate and deploy a mix-and-match model with 8-bit storage and runtime slicing"""
     print(f"\nGenerating C++ code for mix-and-match model with 8-bit storage and runtime slicing...")
     from mlgen3.implementations.neuralnet.cpp.matquant_pt import MatQuantPT
@@ -392,7 +399,8 @@ def generate_mix_model(mix_config, model_path=None):
         implementation, 
         measure_accuracy=True, 
         measure_time=True,
-        filename=f"matquant_pt_mix_{config_str}"
+        filename=f"matquant_pt_mix_{config_str}",
+        seed=seed
     )
     
     # Now implement after the filename has been set
@@ -420,6 +428,7 @@ def parse_args():
     parser.add_argument('--mix', action='store_true', help='Generate mix-and-match model')
     parser.add_argument('--custom-mix', type=str, help='Custom mix-and-match configuration in format "layer1:bits,layer2:bits"')
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility (overrides config)')
+    parser.add_argument('--inference-seed', type=int, default=707, help='Random seed for C++ inference (default: 707)')
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -430,16 +439,15 @@ if __name__ == "__main__":
         extracted_models, mix_config = extract_and_test_models(mq_model)
     
     if args.generate:
-        # Process the models based on arguments
         results = {}
+        inference_seed = args.inference_seed
 
         # Generate uniform bit-width models
         if args.uniform:
             for bit_width in args.uniform:
-                results[f"uniform_{bit_width}bit"] = generate_uniform_model(bit_width)
+                results[f"uniform_{bit_width}bit"] = generate_uniform_model(bit_width, seed=inference_seed)
         else:
-            # Default to 8-bit if no uniform bit-widths specified
-            results["uniform_8bit"] = generate_uniform_model(8)
+            results["uniform_8bit"] = generate_uniform_model(8, seed=inference_seed)
 
         # Generate default mix-and-match model
         if args.mix:
@@ -448,7 +456,7 @@ if __name__ == "__main__":
                 'model.3.weight': 4, 
                 'model.6.weight': 2
             }
-            results["default_mix"] = generate_mix_model(default_mix)
+            results["default_mix"] = generate_mix_model(default_mix, seed=inference_seed)
 
         # Generate custom mix-and-match model
         if args.custom_mix:
@@ -457,7 +465,7 @@ if __name__ == "__main__":
                 for pair in args.custom_mix.split(','):
                     layer, bits = pair.split(':')
                     custom_mix[layer] = int(bits)
-                results["custom_mix"] = generate_mix_model(custom_mix)
+                results["custom_mix"] = generate_mix_model(custom_mix, seed=inference_seed)
             except Exception as e:
                 print(f"Error parsing custom mix-and-match configuration: {e}")
                 print("Format should be: 'model.0.weight:8,model.3.weight:4,model.6.weight:2'")

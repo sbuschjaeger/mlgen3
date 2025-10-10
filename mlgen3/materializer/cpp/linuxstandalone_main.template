@@ -6,6 +6,7 @@
 #include <vector>
 #include <tuple>
 #include <assert.h>
+#include <random>
 
 {typedefinitions}
 
@@ -100,35 +101,34 @@ auto benchmark(std::vector<std::vector<FEATURE_TYPE>> &X, std::vector<LABEL_TYPE
     {measure_results}
 }
 
+void set_random_seed(unsigned int seed) {
+    std::srand(seed);
+}
+
 int main (int argc, char *argv[]) {
 	if (argc <= 2) {
-		std::cout << "Please provide two arguments: path n_repetitions" << std::endl;
+		std::cout << "Please provide two arguments: path n_repetitions [seed]" << std::endl;
+        return 1;
 	}
 	std::string path = std::string(argv[1]);
 	unsigned int repeat = std::stoi(argv[2]);
+	
+	// Set random seed (default: 707)
+	unsigned int seed = 707;
+	if (argc > 3) {
+	    seed = std::stoi(argv[3]);
+	}
+	set_random_seed(seed);
 
 	auto data = read_csv(path);
 
 	assert(std::get<0>(data).size() > 0);
 	assert(std::get<0>(data).size() == std::get<1>(data).size());
-	// assert(std::get<0>(data)[0].size() == N_FEATURES);
 
-    // std::cout << "RUNNING BENCHMARK WITH " << repeat << " REPETITIONS" << std::endl;
+    std::cout << "RUNNING BENCHMARK WITH " << repeat << " REPETITIONS" << std::endl;
     auto results = benchmark(std::get<0>(data), std::get<1>(data), repeat);
 
     {print_measurements}
     
-    // std::cout << "Accuracy: " << results.first << " %" << std::endl;
-    // std::cout << "Latency: " << results.second << " [ms/elem]" << std::endl;
-	// #ifdef REF_ACCURACY
-	// 	float difference = results.first - REF_ACCURACY;
-	// 	std::cout << "Reference Accuracy: " << REF_ACCURACY << " %" << std::endl;
-	// 	std::cout << "Difference: " << difference << std::endl;
-	    
-    //     std::cout << results.first << "," << REF_ACCURACY << "," << difference << "," << results.second << std::endl;
-	// #else
-    //     std::cout << results.first << "," << "," << "," << results.second << std::endl;
-    // #endif
-
     return 0;
 }

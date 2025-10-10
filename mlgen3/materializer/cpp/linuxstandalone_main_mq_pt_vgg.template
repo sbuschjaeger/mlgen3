@@ -7,6 +7,7 @@
 #include <tuple>
 #include <assert.h>
 #include <iomanip>
+#include <random>
 
 {typedefinitions}
 
@@ -102,13 +103,25 @@ void print_matquant_info() {
     }
 }
 
+void set_random_seed(unsigned int seed) {
+    std::srand(seed);
+    std::cout << "Random seed set to: " << seed << std::endl;
+}
+
 int main (int argc, char *argv[]) {
 	if (argc <= 2) {
-		std::cout << "Please provide two arguments: path n_repetitions" << std::endl;
+		std::cout << "Please provide two arguments: path n_repetitions [seed]" << std::endl;
         return 1;
 	}
 	std::string path = std::string(argv[1]);
 	unsigned int repeat = std::stoi(argv[2]);
+	
+	// Set random seed (default: 707)
+	unsigned int seed = 707;
+	if (argc > 3) {
+	    seed = std::stoi(argv[3]);
+	}
+	set_random_seed(seed);
 
 	auto data = read_csv(path);
 

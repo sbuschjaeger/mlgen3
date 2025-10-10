@@ -24,6 +24,7 @@ class LinuxStandalone(Materializer):
         compiler="g++",
         use_onnx=False,
         test_samples=1000,
+        seed=707,
     ):
         super().__init__(implementation)
         self.measure_accuracy = measure_accuracy
@@ -33,6 +34,7 @@ class LinuxStandalone(Materializer):
         self.compiler = compiler
         self.use_onnx = use_onnx
         self.test_samples = test_samples  # Number of random test samples to use
+        self.seed = seed
         
         # Set filename for implementations that need it
         if hasattr(implementation, 'set_filename'):
@@ -244,7 +246,10 @@ class LinuxStandalone(Materializer):
         # )
         # dfTest.to_csv(os.path.join(self.path, "testing.csv"), header=True, index=False)
 
-    def run(self, verbose=False):
+    def run(self, verbose=False, seed=None):
+        # Use provided seed or default from instance
+        run_seed = seed if seed is not None else self.seed
+        
         make_res = subprocess.run(
             f"cd {self.path} && make", capture_output=True, text=True, shell=True
         )
@@ -252,15 +257,17 @@ class LinuxStandalone(Materializer):
             print(f"Running cd {self.path} && make\n")
             print(f"stdout: \n{make_res.stdout}")
             print(f"stderr: \n{make_res.stderr}")
+        
+        # Pass seed as third argument
         run_res = subprocess.run(
-            f"cd {self.path} && ./{self.filename} testing.csv 1",
+            f"cd {self.path} && ./{self.filename} testing.csv 1 {run_seed}",
             capture_output=True,
             text=True,
             shell=True,
         )
 
         if verbose:
-            print(f"cd {self.path} && ./{self.filename} testing.csv 1")
+            print(f"cd {self.path} && ./{self.filename} testing.csv 1 {run_seed}")
             print(f"stdout: \n{run_res.stdout}")
             print(f"stderr: \n{run_res.stderr}")
 

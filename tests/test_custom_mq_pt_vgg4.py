@@ -31,6 +31,12 @@ train_y = torch.tensor(y_train, dtype=torch.long)
 test_x = torch.tensor(X_test, dtype=torch.float32)
 test_y = torch.tensor(y_test, dtype=torch.long)
 
+# # Print dataset sizes
+# print(f"Training set size: {train_x.shape}")
+# print(f"Training labels size: {train_y.shape}")
+# print(f"Test set size: {test_x.shape}")
+# print(f"Test labels size: {test_y.shape}")
+
 # Define VGG4 network architecture (same model as in qnn matquant framework)
 class VGG(nn.Module):
     def __init__(self):
@@ -77,7 +83,7 @@ config = {
         'target_bits': [8, 4, 2],
         'loss_weights': {8: 0.4, 4: 0.8, 2: 0.8},
         'quantize_bias': True,
-        'quantize_target': 'weights_and_activations', # 'weights_and_activations' or 'weights_only'
+        'quantize_target': 'weights_only', # 'weights_and_activations' or 'weights_only'
         'quantize_layers': [
             # Will be filled by layer_registry
         ]
@@ -298,13 +304,14 @@ def extract_and_test_models(mq_model):
     
     return extracted_models, mix_config
 
-def generate_cpp_model(bit_width, mix_config=None, model_path=None):
+def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707):
     """Generate C++ code for MatQuant PyTorch VGG model"""
     if not model_path:
         model_path = config['evaluation']['model_path']
         
     print(f"\nGenerating C++ code for {'mix-and-match' if mix_config else bit_width}-bit VGG model...")
-    
+    print(f"Using model parameters from: {model_path}\n")
+
     # Load the saved model state dict
     saved_model_state = torch.load(model_path)
     
@@ -373,7 +380,8 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None):
         measure_accuracy=True, 
         measure_time=True,
         test_samples=1000,
-        filename=f"matquant_pt_vgg4_{config_name}"
+        filename=f"matquant_pt_vgg4_{config_name}",
+        seed=seed
     )
     
     output_path = f"generated_code/matquant_pt_vgg4/{config_name}"
@@ -398,6 +406,7 @@ def parse_args():
     parser.add_argument('--uniform', type=int, nargs='+', default=[8], help='Bit-widths for uniform quantization models')
     parser.add_argument('--mix', action='store_true', help='Generate mix-and-match model')
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility (overrides config)')
+    parser.add_argument('--inference-seed', type=int, default=707, help='Random seed for C++ inference (default: 707)')
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -412,21 +421,21 @@ if __name__ == "__main__":
     
     if args.generate:
         results = {}
+        inference_seed = args.inference_seed
         
         # Generate uniform bit-width models
         for bit_width in args.uniform:
-            results[f"uniform_{bit_width}bit"] = generate_cpp_model(bit_width)
+            results[f"uniform_{bit_width}bit"] = generate_cpp_model(bit_width, seed=inference_seed)
         
         # Generate mix-and-match model
         if args.mix:
-            # Default mix-and-match configuration
             default_mix = {
-                'model.0.weight': 8,  # First conv
-                'model.4.weight': 4,  # Second conv
-                'model.9.weight': 2,  # First FC
-                'model.11.weight': 2  # Second FC
+                'model.0.weight': 8,
+                'model.4.weight': 4,
+                'model.9.weight': 2,
+                'model.11.weight': 2
             }
-            results["mix_and_match"] = generate_cpp_model(8, default_mix)
+            results["mix_and_match"] = generate_cpp_model(8, default_mix, seed=inference_seed)
         
         print("\nGeneration complete. Results summary:")
         for model_name, res in results.items():

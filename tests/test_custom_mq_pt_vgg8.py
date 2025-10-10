@@ -314,7 +314,7 @@ def extract_and_test_models(mq_model):
     
     return extracted_models, mix_config
 
-def generate_cpp_model(bit_width, mix_config=None, model_path=None):
+def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707):
     """Generate C++ code for MatQuant PyTorch VGG8 model"""
     if not model_path:
         model_path = config['evaluation']['model_path']
@@ -402,7 +402,8 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None):
         measure_accuracy=True, 
         measure_time=True,
         test_samples=100,
-        filename=f"matquant_pt_vgg8_{config_name}"
+        filename=f"matquant_pt_vgg8_{config_name}",
+        seed=seed
     )
     
     output_path = f"generated_code/matquant_pt_vgg8/{config_name}"
@@ -427,6 +428,7 @@ def parse_args():
     parser.add_argument('--uniform', type=int, nargs='+', default=[8], help='Bit-widths for uniform quantization models')
     parser.add_argument('--mix', action='store_true', help='Generate mix-and-match model')
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility (overrides config)')
+    parser.add_argument('--inference-seed', type=int, default=707, help='Random seed for C++ inference (default: 707)')
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -441,23 +443,23 @@ if __name__ == "__main__":
     
     if args.generate:
         results = {}
+        inference_seed = args.inference_seed
         
         # Generate uniform bit-width models
         for bit_width in args.uniform:
-            results[f"uniform_{bit_width}bit"] = generate_cpp_model(bit_width)
+            results[f"uniform_{bit_width}bit"] = generate_cpp_model(bit_width, seed=inference_seed)
         
         # Generate mix-and-match model
         if args.mix:
-            # Default mix-and-match configuration
             default_mix = {
-                'model.0.weight': 8,   # Conv2d(3, 128)
-                'model.4.weight': 4,   # Conv2d(128, 128)
-                'model.7.weight': 8,   # Conv2d(128, 256)
-                'model.11.weight': 4,  # Conv2d(256, 256)
-                'model.14.weight': 2,  # Conv2d(256, 512)
-                'model.18.weight': 2   # Conv2d(512, 512)
+                'model.0.weight': 8,
+                'model.4.weight': 4,
+                'model.7.weight': 8,
+                'model.11.weight': 4,
+                'model.14.weight': 2,
+                'model.18.weight': 2
             }
-            results["mix_and_match"] = generate_cpp_model(8, default_mix)
+            results["mix_and_match"] = generate_cpp_model(8, default_mix, seed=inference_seed)
         
         print("\nGeneration complete. Results summary:")
         for model_name, res in results.items():

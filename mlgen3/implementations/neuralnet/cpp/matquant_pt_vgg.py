@@ -221,6 +221,12 @@ class MatQuantPT_VGG(Implementation):
             
             with open(f"{self.model_binary_dir}/layer_{layer_idx}_weight_qparams.bin", "wb") as f:
                 f.write(struct.pack('ff', scale, zero_point))
+
+            if layer_idx == 0:
+                print("=========================================================================")
+                print(f"Weight stats for layer {layer_idx}: min={w_min}, max={w_max}, scale={scale}, zero_point={zero_point}")
+                print(f"Sample quantized weights: {quantized_weights[:10]}")
+                print("=========================================================================")
             
             print(f"Saved layer_{layer_idx}_weight.bin, shape: {weight_tensor.shape}, size: {weight_size}")
         
@@ -244,6 +250,12 @@ class MatQuantPT_VGG(Implementation):
                 
                 with open(f"{self.model_binary_dir}/layer_{layer_idx}_bias_qparams.bin", "wb") as f:
                     f.write(struct.pack('ff', scale, zero_point))
+
+                if layer_idx == 0:
+                    print("=========================================================================")
+                    print(f"Bias stats for layer {layer_idx}: min={b_min}, max={b_max}, scale={scale}, zero_point={zero_point}")
+                    print(f"Sample quantized bias: {quantized_bias[:10]}")
+                    print("=========================================================================")
                 
                 print(f"Saved layer_{layer_idx}_bias.bin, shape: {bias_tensor.shape}, size: {bias_tensor.size}")
             else:
