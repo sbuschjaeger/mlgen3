@@ -120,11 +120,7 @@ config = {
 }
 
 def train_model(args):
-    # Set random seed for reproducibility
-    seed = get_seed_from_config(config)
-    if args.seed is not None:
-        seed = args.seed
-    set_seed(seed)
+
     
     print("\nCreating VGG4 model...")
     model = VGG()
@@ -379,7 +375,7 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707):
         implementation, 
         measure_accuracy=True, 
         measure_time=True,
-        test_samples=1000,
+        test_samples=100,
         filename=f"matquant_pt_vgg4_{config_name}",
         seed=seed
     )
@@ -411,6 +407,12 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+
+    # Set random seed for reproducibility
+    seed = get_seed_from_config(config)
+    if args.seed is not None:
+        seed = args.seed
+    set_seed(seed)
     
     if args.train:
         model, mq_model = train_model(args)

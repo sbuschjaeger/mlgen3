@@ -93,11 +93,6 @@ class LayerRegistry:
         return self.layer_paths
 
 def train_model(args):
-    # Set random seed for reproducibility
-    seed = get_seed_from_config(config)
-    if args.seed is not None:
-        seed = args.seed
-    set_seed(seed)
     
     # Create model
     print("\nCreating MLP model...")
@@ -433,6 +428,12 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+
+    # Set random seed for reproducibility
+    seed = get_seed_from_config(config)
+    if args.seed is not None:
+        seed = args.seed
+    set_seed(seed)
     
     if args.train:
         model, mq_model = train_model(args)
