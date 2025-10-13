@@ -63,7 +63,7 @@ class MatQuantPT_VGG(Implementation):
             layers = list(self.model.model)
             
             for idx, layer in enumerate(layers):
-                if isinstance(layer, (nn.Conv2d, nn.Conv1d, nn.Linear)):
+                if isinstance(layer, (nn.Conv2d, nn.Conv1d, nn.Linear, nn.BatchNorm2d)):
                     # Add to list of quantizable layers
                     self.quantizable_layers.append(idx)
                     
@@ -89,6 +89,11 @@ class MatQuantPT_VGG(Implementation):
                             'type': 'linear',
                             'out_features': layer.out_features,
                             'in_features': layer.in_features
+                        }
+                    elif isinstance(layer, nn.BatchNorm2d):
+                        self.layer_info[idx] = {
+                            'type': 'batchnorm2d',
+                            'num_features': layer.num_features
                         }
                     print(f"Found quantizable layer {idx}: {type(layer).__name__}")
 
@@ -119,7 +124,7 @@ class MatQuantPT_VGG(Implementation):
             # For debugging
             # print("Calculating shapes for VGG model with structure:")
             # for i, layer in enumerate(layers):
-            #     print(f"  {i}: {layer}") #.__class__.__name__}")
+            #     print(f"  {i}: {layer}") #.__class__.__name__})
             
             # Calculate shapes for each layer
             for i, layer in enumerate(layers):
@@ -194,75 +199,133 @@ class MatQuantPT_VGG(Implementation):
         print(f"\nExtracting model parameters for layers: {self.quantizable_layers}")
         
         for layer_idx in self.quantizable_layers:
-            # Process weights
-            weight_key = f'model.{layer_idx}.weight'
-            if weight_key not in model_state:
-                print(f"Warning: Key '{weight_key}' not found in model_state")
-                print(f"Available keys: {list(model_state.keys())[:10]}")
-                continue
+            layer_info = self.layer_info.get(layer_idx, {})
+            layer_type = layer_info.get('type', 'unknown')
+            
+            # Process weights for Conv and Linear layers
+            if layer_type in ['conv', 'conv1d', 'linear']:
+                weight_key = f'model.{layer_idx}.weight'
+                if weight_key not in model_state:
+                    print(f"Warning: Key '{weight_key}' not found in model_state")
+                    print(f"Available keys: {list(model_state.keys())[:10]}")
+                    continue
+                    
+                weight_tensor = model_state[weight_key].cpu().numpy()
                 
-            weight_tensor = model_state[weight_key].cpu().numpy()
-            
-            # Reshape to 1D array for quantization
-            weight_flat = weight_tensor.reshape(-1)
-            weight_size = weight_flat.size
-            
-            # MinMax quantization to 8 bits
-            w_min = weight_flat.min()
-            w_max = weight_flat.max()
-            scale = (w_max - w_min) / 255.0  # 8-bit = 255 values
-            zero_point = -w_min / scale if scale != 0 else 0
-            
-            # Quantize weights
-            quantized_weights = np.clip(np.round(weight_flat / scale + zero_point), 0, 255).astype(np.uint8)
-            
-            # Save quantized weights and quantization parameters
-            with open(f"{self.model_binary_dir}/layer_{layer_idx}_weight.bin", "wb") as f:
-                f.write(quantized_weights.tobytes())
-            
-            with open(f"{self.model_binary_dir}/layer_{layer_idx}_weight_qparams.bin", "wb") as f:
-                f.write(struct.pack('ff', scale, zero_point))
-
-            if layer_idx == 0:
-                print("=========================================================================")
-                print(f"Weight stats for layer {layer_idx}: min={w_min}, max={w_max}, scale={scale}, zero_point={zero_point}")
-                print(f"Sample weights: {weight_flat[:10]}")
-                print(f"Sample quantized weights: {quantized_weights[:10]}")
-                print("=========================================================================")
-            
-            print(f"Saved layer_{layer_idx}_weight.bin, shape: {weight_tensor.shape}, size: {weight_size}")
-        
-            # Process bias
-            bias_key = f'model.{layer_idx}.bias'
-            if bias_key in model_state:
-                bias_tensor = model_state[bias_key].cpu().numpy()
+                # Reshape to 1D array for quantization
+                weight_flat = weight_tensor.reshape(-1)
+                weight_size = weight_flat.size
                 
                 # MinMax quantization to 8 bits
-                b_min = bias_tensor.min()
-                b_max = bias_tensor.max()
-                scale = (b_max - b_min) / 255.0 if b_max > b_min else 1.0
-                zero_point = -b_min / scale if scale != 0 else 0
+                w_min = weight_flat.min()
+                w_max = weight_flat.max()
+                scale = (w_max - w_min) / 255.0  # 8-bit = 255 values
+                zero_point = -w_min / scale if scale != 0 else 0
                 
-                # Quantize bias
-                quantized_bias = np.clip(np.round(bias_tensor / scale + zero_point), 0, 255).astype(np.uint8)
+                # Quantize weights
+                quantized_weights = np.clip(np.round(weight_flat / scale + zero_point), 0, 255).astype(np.uint8)
                 
-                # Save quantized bias and quantization parameters
-                with open(f"{self.model_binary_dir}/layer_{layer_idx}_bias.bin", "wb") as f:
-                    f.write(quantized_bias.tobytes())
+                # Save quantized weights and quantization parameters
+                with open(f"{self.model_binary_dir}/layer_{layer_idx}_weight.bin", "wb") as f:
+                    f.write(quantized_weights.tobytes())
                 
-                with open(f"{self.model_binary_dir}/layer_{layer_idx}_bias_qparams.bin", "wb") as f:
+                with open(f"{self.model_binary_dir}/layer_{layer_idx}_weight_qparams.bin", "wb") as f:
                     f.write(struct.pack('ff', scale, zero_point))
 
                 if layer_idx == 0:
                     print("=========================================================================")
-                    print(f"Bias stats for layer {layer_idx}: min={b_min}, max={b_max}, scale={scale}, zero_point={zero_point}")
-                    print(f"Sample biases: {bias_tensor[:10]}")
-                    print(f"Sample quantized bias: {quantized_bias[:10]}")
+                    print(f"Weight stats for layer {layer_idx}: min={w_min}, max={w_max}, scale={scale}, zero_point={zero_point}")
+                    print(f"Sample weights: {weight_flat[:10]}")
+                    print(f"Sample quantized weights: {quantized_weights[:10]}")
                     print("=========================================================================")
                 
-                print(f"Saved layer_{layer_idx}_bias.bin, shape: {bias_tensor.shape}, size: {bias_tensor.size}")
-            else:
-                print(f"Warning: Bias key {bias_key} not found in model state")
+                print(f"Saved layer_{layer_idx}_weight.bin, shape: {weight_tensor.shape}, size: {weight_size}")
+            
+                # Process bias
+                bias_key = f'model.{layer_idx}.bias'
+                if bias_key in model_state:
+                    bias_tensor = model_state[bias_key].cpu().numpy()
+                    
+                    # MinMax quantization to 8 bits
+                    b_min = bias_tensor.min()
+                    b_max = bias_tensor.max()
+                    scale = (b_max - b_min) / 255.0 if b_max > b_min else 1.0
+                    zero_point = -b_min / scale if scale != 0 else 0
+                    
+                    # Quantize bias
+                    quantized_bias = np.clip(np.round(bias_tensor / scale + zero_point), 0, 255).astype(np.uint8)
+                    
+                    # Save quantized bias and quantization parameters
+                    with open(f"{self.model_binary_dir}/layer_{layer_idx}_bias.bin", "wb") as f:
+                        f.write(quantized_bias.tobytes())
+                    
+                    with open(f"{self.model_binary_dir}/layer_{layer_idx}_bias_qparams.bin", "wb") as f:
+                        f.write(struct.pack('ff', scale, zero_point))
+
+                    if layer_idx == 0:
+                        print("=========================================================================")
+                        print(f"Bias stats for layer {layer_idx}: min={b_min}, max={b_max}, scale={scale}, zero_point={zero_point}")
+                        print(f"Sample biases: {bias_tensor[:10]}")
+                        print(f"Sample quantized bias: {quantized_bias[:10]}")
+                        print("=========================================================================")
+                    
+                    print(f"Saved layer_{layer_idx}_bias.bin, shape: {bias_tensor.shape}, size: {bias_tensor.size}")
+                else:
+                    print(f"Warning: Bias key {bias_key} not found in model state")
+            
+            # Process BatchNorm2d layers
+            elif layer_type == 'batchnorm2d':
+                # BatchNorm has weight (gamma) and bias (beta) parameters
+                weight_key = f'model.{layer_idx}.weight'
+                bias_key = f'model.{layer_idx}.bias'
+                
+                # Extract and quantize weight (gamma/scale)
+                if weight_key in model_state:
+                    weight_tensor = model_state[weight_key].cpu().numpy()
+                    
+                    # MinMax quantization to 8 bits
+                    w_min = weight_tensor.min()
+                    w_max = weight_tensor.max()
+                    scale = (w_max - w_min) / 255.0 if w_max > w_min else 1.0
+                    zero_point = -w_min / scale if scale != 0 else 0
+                    
+                    # Quantize weights
+                    quantized_weights = np.clip(np.round(weight_tensor / scale + zero_point), 0, 255).astype(np.uint8)
+                    
+                    # Save quantized weights and quantization parameters
+                    with open(f"{self.model_binary_dir}/layer_{layer_idx}_weight.bin", "wb") as f:
+                        f.write(quantized_weights.tobytes())
+                    
+                    with open(f"{self.model_binary_dir}/layer_{layer_idx}_weight_qparams.bin", "wb") as f:
+                        f.write(struct.pack('ff', scale, zero_point))
+                    
+                    print(f"Saved layer_{layer_idx}_weight.bin (BatchNorm), shape: {weight_tensor.shape}, size: {weight_tensor.size}")
+                else:
+                    print(f"Warning: BatchNorm weight key {weight_key} not found in model state")
+                
+                # Extract and quantize bias (beta/shift)
+                if bias_key in model_state:
+                    bias_tensor = model_state[bias_key].cpu().numpy()
+                    
+                    # MinMax quantization to 8 bits
+                    b_min = bias_tensor.min()
+                    b_max = bias_tensor.max()
+                    scale = (b_max - b_min) / 255.0 if b_max > b_min else 1.0
+                    zero_point = -b_min / scale if scale != 0 else 0
+                    
+                    # Quantize bias
+                    quantized_bias = np.clip(np.round(bias_tensor / scale + zero_point), 0, 255).astype(np.uint8)
+                    
+                    # Save quantized bias and quantization parameters
+                    with open(f"{self.model_binary_dir}/layer_{layer_idx}_bias.bin", "wb") as f:
+                        f.write(quantized_bias.tobytes())
+                    
+                    with open(f"{self.model_binary_dir}/layer_{layer_idx}_bias_qparams.bin", "wb") as f:
+                        f.write(struct.pack('ff', scale, zero_point))
+                    
+                    print(f"Saved layer_{layer_idx}_bias.bin (BatchNorm), shape: {bias_tensor.shape}, size: {bias_tensor.size}")
+                else:
+                    print(f"Warning: BatchNorm bias key {bias_key} not found in model state")
     
         print(f"\nAll model parameters extracted and saved to {self.model_binary_dir}\n")
     
@@ -296,29 +359,32 @@ class MatQuantPT_VGG(Implementation):
         """Generate C++ code for layer allocations based on the model structure."""
         alloc_code = "// Layer allocations\n"
         
-        # If we have layer shapes, use them for allocations
-        if self.layer_shapes:
-            # Get the total number of layers in the model
-            if hasattr(self.model, 'model') and isinstance(self.model.model, nn.Sequential):
-                total_layers = len(self.model.model)
-            else:
-                # Estimate from the highest layer index in quantizable_layers
-                total_layers = max(self.quantizable_layers) + 2 if self.quantizable_layers else 0
+        if not self.layer_shapes:
+            return alloc_code + "// No layer shapes available\n"
+        
+        # Only allocate arrays for layers that actually need them
+        # We'll allocate for: Conv outputs, MaxPool outputs, BatchNorm outputs, ReLU outputs,
+        # Flatten output, and Linear outputs
+        if hasattr(self.model, 'model') and isinstance(self.model.model, nn.Sequential):
+            layers = list(self.model.model)
+            
+            for i, layer in enumerate(layers):
+                if i not in self.layer_shapes:
+                    continue
                 
-            # Generate allocations for each layer
-            for i in range(total_layers):
-                if i in self.layer_shapes:
-                    output_shape = self.layer_shapes[i]['output_shape']
-                    if len(output_shape) == 1:
-                        # 1D output (e.g., from Linear layer or Flatten)
-                        size = output_shape[0]
-                    elif len(output_shape) == 3:
-                        # 3D output (e.g., from Conv or MaxPool)
-                        c, h, w = output_shape
-                        size = c * h * w
-                    else:
-                        size = 1  # Default size if shape is unknown
-                    
+                output_shape = self.layer_shapes[i]['output_shape']
+                
+                # Calculate size based on shape
+                if len(output_shape) == 1:
+                    size = output_shape[0]
+                elif len(output_shape) == 3:
+                    c, h, w = output_shape
+                    size = c * h * w
+                else:
+                    continue
+                
+                # Only allocate for specific layer types
+                if isinstance(layer, (nn.Conv2d, nn.MaxPool2d, nn.BatchNorm2d, nn.ReLU, nn.Flatten, nn.Linear)):
                     alloc_code += f"static float layer_{i}[{size}];\n"
                 else:
                     # If we don't have shape info, just create a placeholder
@@ -357,14 +423,15 @@ class MatQuantPT_VGG(Implementation):
         # Generate load statements for each quantizable layer
         for layer_idx in self.quantizable_layers:
             layer_info = self.layer_info.get(layer_idx, {})
+            layer_type = layer_info.get('type', 'unknown')
             
-            if layer_info.get('type') == 'conv':
+            if layer_type == 'conv':
                 in_channels = layer_info.get('in_channels', 1)
                 out_channels = layer_info.get('out_channels', 64)
                 kernel_h, kernel_w = layer_info.get('kernel_size', (3, 3))
                 weight_size = out_channels * in_channels * kernel_h * kernel_w
                 
-                code.append(f"    // Load weights for layer {layer_idx} ({layer_info['type']})")
+                code.append(f"    // Load weights for layer {layer_idx} ({layer_type})")
                 code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
                 code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 
@@ -372,17 +439,26 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_channels});")
                 code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                 
-            elif layer_info.get('type') == 'linear':
+            elif layer_type == 'linear':
                 in_features = layer_info.get('in_features', 1024)
                 out_features = layer_info.get('out_features', 10)
                 weight_size = out_features * in_features
                 
-                code.append(f"    // Load weights for layer {layer_idx} ({layer_info['type']})")
+                code.append(f"    // Load weights for layer {layer_idx} ({layer_type})")
                 code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
                 code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 
                 code.append(f"    // Load bias for layer {layer_idx}")
                 code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_features});")
+                code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+            
+            elif layer_type == 'batchnorm2d':
+                num_features = layer_info.get('num_features', 64)
+                
+                code.append(f"    // Load BatchNorm2d parameters for layer {layer_idx}")
+                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {num_features});")
+                code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {num_features});")
                 code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
         
         # Add code to precompute dequantized weights for all layers
@@ -390,8 +466,9 @@ class MatQuantPT_VGG(Implementation):
         
         for layer_idx in self.quantizable_layers:
             layer_info = self.layer_info.get(layer_idx, {})
+            layer_type = layer_info.get('type', 'unknown')
             
-            if layer_info.get('type') == 'conv':
+            if layer_type == 'conv':
                 in_channels = layer_info.get('in_channels', 1)
                 out_channels = layer_info.get('out_channels', 64)
                 kernel_h, kernel_w = layer_info.get('kernel_size', (3, 3))
@@ -415,7 +492,7 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
                 code.append("    }")
                 
-            elif layer_info.get('type') == 'linear':
+            elif layer_type == 'linear':
                 in_features = layer_info.get('in_features', 1024)
                 out_features = layer_info.get('out_features', 10)
                 weight_size = out_features * in_features
@@ -431,6 +508,27 @@ class MatQuantPT_VGG(Implementation):
                 
                 code.append(f"    // Precompute dequantized biases for Layer {layer_idx}")
                 code.append(f"    layer_{layer_idx}_bias_dequant.resize({out_features});")
+                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
+                code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
+                code.append("    }")
+            
+            elif layer_type == 'batchnorm2d':
+                num_features = layer_info.get('num_features', 64)
+                
+                code.append(f"    // Precompute dequantized weights for BatchNorm Layer {layer_idx}")
+                code.append(f"    layer_{layer_idx}_weights_dequant.resize({num_features});")
+                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
+                code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
+                code.append("    }")
+                
+                code.append(f"    // Precompute dequantized biases for BatchNorm Layer {layer_idx}")
+                code.append(f"    layer_{layer_idx}_bias_dequant.resize({num_features});")
                 code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
                 code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
                 code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
@@ -493,8 +591,8 @@ class MatQuantPT_VGG(Implementation):
         
         implementations.append("")
         
-        # Track current tensor shape and format
-        current_format = "3d"  # Starts as 3D tensor
+        # Track current tensor format and shape
+        current_format = "3d"
         current_shape = (self.input_channels, self.input_height, self.input_width)
         
         for i, layer in enumerate(layers):
@@ -511,10 +609,7 @@ class MatQuantPT_VGG(Implementation):
             if i == 0:
                 input_name = "input_3d" if current_format == "3d" else "x"
             else:
-                if current_format == "3d":
-                    input_name = f"layer_{i-1}_3d"
-                else:
-                    input_name = f"layer_{i-1}"
+                input_name = f"layer_{i-1}_3d" if current_format == "3d" else f"layer_{i-1}"
             
             # Process layer based on its type
             if isinstance(layer, nn.Conv2d):
@@ -526,7 +621,7 @@ class MatQuantPT_VGG(Implementation):
                 # Determine output dimensions
                 out_h, out_w = out_shape[1], out_shape[2] if len(out_shape) == 3 else (1, 1)
                 
-                # Generate convolution implementation
+                # Generate convolution implementation with fixed weight indexing
                 implementations.append(f"// Layer {i}: Conv2d")
                 implementations.append(f"std::vector<std::vector<std::vector<float>>> layer_{i}_3d({out_channels}, std::vector<std::vector<float>>({out_h}, std::vector<float>({out_w}, 0.0f)));")
                 implementations.append("")
@@ -540,26 +635,29 @@ class MatQuantPT_VGG(Implementation):
                 implementations.append("}")
                 implementations.append("")
                 implementations.append("// Perform convolution with precomputed dequantized weights")
+                implementations.append("// PyTorch Conv2d: weight shape is [out_channels, in_channels, kernel_h, kernel_w]")
                 implementations.append(f"for (int out_c = 0; out_c < {out_channels}; out_c++) {{")
-                implementations.append(f"    for (int h_out = 0; h_out < {out_h}; h_out++) {{")
-                implementations.append(f"        for (int w_out = 0; w_out < {out_w}; w_out++) {{")
-                implementations.append("            // Compute convolution with kernel")
-                implementations.append(f"            for (int in_c = 0; in_c < {in_channels}; in_c++) {{")
+                implementations.append(f"    for (int in_c = 0; in_c < {in_channels}; in_c++) {{")
+                implementations.append(f"        for (int h_out = 0; h_out < {out_h}; h_out++) {{")
+                implementations.append(f"            for (int w_out = 0; w_out < {out_w}; w_out++) {{")
+                implementations.append("                // Compute convolution with kernel")
                 implementations.append(f"                for (int kh = 0; kh < {kernel_h}; kh++) {{")
                 implementations.append(f"                    for (int kw = 0; kw < {kernel_w}; kw++) {{")
                 implementations.append("                        // Calculate input position with padding")
+                implementations.append(f"                        // padding={padding[0]}, stride={stride[0]}")
                 implementations.append(f"                        int h_in = h_out * {stride[0]} + kh - {padding[0]};")
                 implementations.append(f"                        int w_in = w_out * {stride[1]} + kw - {padding[1]};")
                 implementations.append("")
-                implementations.append("                        // Skip if outside input boundaries")
+                implementations.append("                        // Skip if outside input boundaries (padding is implicit zero)")
                 implementations.append(f"                        if (h_in < 0 || h_in >= {in_shape[1]} || w_in < 0 || w_in >= {in_shape[2]}) {{")
                 implementations.append("                            continue;")
                 implementations.append("                        }")
                 implementations.append("")
-                implementations.append("                        // Calculate weight index")
-                implementations.append(f"                        int weight_idx = out_c * ({in_channels} * {kernel_h} * {kernel_w}) + in_c * ({kernel_h} * {kernel_w}) + kh * {kernel_w} + kw;")
+                implementations.append("                        // Calculate weight index: [out_c, in_c, kh, kw]")
+                implementations.append("                        // Weight layout: out_channels * in_channels * kernel_h * kernel_w")
+                implementations.append(f"                        int weight_idx = ((out_c * {in_channels} + in_c) * {kernel_h} + kh) * {kernel_w} + kw;")
                 implementations.append("")
-                implementations.append("                        // Use precomputed dequantized weights")
+                implementations.append("                        // Accumulate convolution result")
                 implementations.append(f"                        layer_{i}_3d[out_c][h_out][w_out] += {input_name}[in_c][h_in][w_in] * layer_{i}_weights_dequant[weight_idx];")
                 implementations.append("                    }")
                 implementations.append("                }")
@@ -576,6 +674,7 @@ class MatQuantPT_VGG(Implementation):
                     implementations.append(f'cnn_utils::print_3d_tensor_stats(layer_{i}_3d, "Conv2d output");')
                     implementations.append("#endif")
                 
+                # Add flatten copy for Conv layers
                 implementations.append("")
                 implementations.append(f"// Copy to layer_{i} (flatten for later use)")
                 implementations.append(f"for (int c = 0; c < {out_channels}; c++) {{")
@@ -637,6 +736,7 @@ class MatQuantPT_VGG(Implementation):
                     implementations.append(f'cnn_utils::print_3d_tensor_stats(layer_{i}_3d, "MaxPool2d output");')
                     implementations.append("#endif")
                 
+                # Add flatten copy for MaxPool layers
                 implementations.append("")
                 implementations.append(f"// Copy to layer_{i} (flatten for later use)")
                 implementations.append(f"for (int c = 0; c < {out_c}; c++) {{")
@@ -654,14 +754,38 @@ class MatQuantPT_VGG(Implementation):
             elif isinstance(layer, nn.BatchNorm2d):
                 # BatchNorm2d doesn't change shape, but still copy the tensor
                 if current_format == "3d":
+                    c, h, w = out_shape
+                    
                     implementations.append(f"// Layer {i}: BatchNorm2d")
-                    implementations.append(f"std::vector<std::vector<std::vector<float>>> layer_{i}_3d = {input_name};")
+                    implementations.append(f"std::vector<std::vector<std::vector<float>>> layer_{i}_3d({c}, std::vector<std::vector<float>>({h}, std::vector<float>({w}, 0.0f)));")
+                    implementations.append("")
+                    implementations.append("// Apply BatchNorm transformation: output = input * weight + bias")
+                    implementations.append(f"for (int c = 0; c < {c}; c++) {{")
+                    implementations.append(f"    for (int h = 0; h < {h}; h++) {{")
+                    implementations.append(f"        for (int w = 0; w < {w}; w++) {{")
+                    implementations.append(f"            layer_{i}_3d[c][h][w] = {input_name}[c][h][w] * layer_{i}_weights_dequant[c] + layer_{i}_bias_dequant[c];")
+                    implementations.append("        }")
+                    implementations.append("    }")
+                    implementations.append("}")
                     
                     if self.debug:
                         implementations.append("")
                         implementations.append("#ifdef DEBUG_MODE")
-                        implementations.append(f'std::cout << "\\nLayer {i}: BatchNorm2d (pass-through)" << std::endl;')
+                        implementations.append(f'std::cout << "\\nLayer {i}: BatchNorm2d" << std::endl;')
+                        implementations.append(f'std::cout << "  Output shape: [{c}, {h}, {w}]" << std::endl;')
+                        implementations.append(f'cnn_utils::print_3d_tensor_stats(layer_{i}_3d, "BatchNorm2d output");')
                         implementations.append("#endif")
+                    
+                    # Add flatten copy for BatchNorm layers
+                    implementations.append("")
+                    implementations.append(f"// Copy to layer_{i}")
+                    implementations.append(f"for (int c = 0; c < {c}; c++) {{")
+                    implementations.append(f"    for (int h = 0; h < {h}; h++) {{")
+                    implementations.append(f"        for (int w = 0; w < {w}; w++) {{")
+                    implementations.append(f"            layer_{i}[c * {h} * {w} + h * {w} + w] = layer_{i}_3d[c][h][w];")
+                    implementations.append("        }")
+                    implementations.append("    }")
+                    implementations.append("}")
                     
                     current_format = "3d"
                 else:
@@ -701,6 +825,7 @@ class MatQuantPT_VGG(Implementation):
                     c, h, w = in_shape
                     flattened_size = c * h * w
                     
+                    implementations.append(f"// Layer {i}: Flatten")
                     implementations.append(f"// Flatten 3D tensor to 1D (size: {flattened_size})")
                     implementations.append(f"std::vector<float> layer_{i}({flattened_size});")
                     implementations.append(f"int idx = 0;")

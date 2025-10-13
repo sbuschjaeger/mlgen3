@@ -375,7 +375,7 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707, de
         implementation, 
         measure_accuracy=True, 
         measure_time=True,
-        test_samples=1,  # Use single sample for debugging
+        test_samples=1000,  # Use single sample for debugging
         filename=f"matquant_pt_vgg4_{config_name}",
         seed=seed
     )
