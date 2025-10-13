@@ -38,24 +38,24 @@ class VGG(nn.Module):
         self.model = nn.Sequential(
             nn.Conv2d(3, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
             nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-            # nn.BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
             nn.ReLU(inplace=True),
             nn.Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            # nn.BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
             nn.ReLU(inplace=True),
             nn.Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
             nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-            # nn.BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
             nn.ReLU(inplace=True),
             nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            # nn.BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
             nn.ReLU(inplace=True),
             nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
             nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-            # nn.BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
             nn.ReLU(inplace=True),
             nn.Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            # nn.BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
             nn.ReLU(inplace=True),
             nn.Flatten(start_dim=1, end_dim=-1),
             nn.Linear(in_features=8192, out_features=1024, bias=True),
@@ -92,7 +92,7 @@ config = {
         'target_bits': [8, 4, 2],
         'loss_weights': {8: 0.4, 4: 0.8, 2: 0.8},
         'quantize_bias': True,
-        'quantize_target': 'weights_and_activations', # 'weights_and_activations' or 'weights_only'
+        'quantize_target': 'weights_only', # 'weights_and_activations' or 'weights_only'
         'quantize_layers': [
             # Will be filled by layer_registry
         ]
@@ -147,15 +147,16 @@ def train_model(args):
     
     # Set quantize_layers in config
     # For VGG8, quantizing the 6 conv layers and 2 linear layers
+    # TODO add batchnorm layers too
     config['quantization']['quantize_layers'] = [
         "model.0.weight",   # Conv2d(3, 128)
-        "model.3.weight",   # Conv2d(128, 128)
-        "model.5.weight",   # Conv2d(128, 256)
-        "model.8.weight",  # Conv2d(256, 256)
-        "model.10.weight",  # Conv2d(256, 512)
-        "model.13.weight",  # Conv2d(512, 512)
-        "model.16.weight",  # Linear(8192, 1024)
-        "model.18.weight"   # Linear(1024, 10)
+        "model.4.weight",   # Conv2d(128, 128)
+        "model.7.weight",   # Conv2d(128, 256)
+        "model.11.weight",  # Conv2d(256, 256)
+        "model.14.weight",  # Conv2d(256, 512)
+        "model.18.weight",  # Conv2d(512, 512)
+        "model.22.weight",  # Linear(8192, 1024)
+        "model.24.weight"   # Linear(1024, 10)
     ]
     
     print(f"Registered layers for quantization: {config['quantization']['quantize_layers']}")
@@ -254,15 +255,16 @@ def extract_and_test_models(mq_model):
         extracted_models[bits] = mq_model.extract_model(bits).to(device)
     
     # Create mix-and-match model
+    # TODO add batchnorm layers too
     mix_config = {
         'model.0.weight': 8,
-        'model.3.weight': 4,
-        'model.5.weight': 8,
-        'model.8.weight': 4,
-        'model.10.weight': 2,
-        'model.13.weight': 2,
-        'model.16.weight': 8,
-        'model.18.weight': 8
+        'model.4.weight': 4,
+        'model.7.weight': 8,
+        'model.11.weight': 4,
+        'model.14.weight': 2,
+        'model.18.weight': 2,
+        'model.22.weight': 8,
+        'model.24.weight': 8
     }
     mix_model = mq_model.mix_and_match(mix_config).to(device)
     
@@ -347,27 +349,28 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707):
             
             # Create a model with the same structure as the one that generated the state dict
             # This is needed for the MatQuantPT_VGG.analyze_model() function
+            # TODO just copy from existing model defined in VGG class above
             self.model = nn.Sequential(
                 nn.Conv2d(3, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
                 nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-                # nn.BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+                nn.BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-                # nn.BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+                nn.BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
                 nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-                # nn.BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+                nn.BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-                # nn.BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+                nn.BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
                 nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-                # nn.BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+                nn.BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-                # nn.BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+                nn.BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
                 nn.ReLU(inplace=True),
                 nn.Flatten(start_dim=1, end_dim=-1),
                 nn.Linear(in_features=8192, out_features=1024, bias=True),
@@ -401,7 +404,7 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707):
         implementation, 
         measure_accuracy=True, 
         measure_time=True,
-        test_samples=10000,
+        test_samples=1000,
         filename=f"matquant_pt_vgg8_{config_name}",
         seed=seed
     )
@@ -457,15 +460,16 @@ if __name__ == "__main__":
         
         # Generate mix-and-match model
         if args.mix:
+            # TODO add batchnorm layers too
             default_mix = {
                 'model.0.weight': 8,
-                'model.3.weight': 4,
-                'model.5.weight': 8,
-                'model.8.weight': 4,
-                'model.10.weight': 2,
-                'model.13.weight': 2,
-                'model.16.weight': 8,
-                'model.18.weight': 8
+                'model.4.weight': 4,
+                'model.7.weight': 8,
+                'model.11.weight': 4,
+                'model.14.weight': 2,
+                'model.18.weight': 2,
+                'model.22.weight': 8,
+                'model.24.weight': 8
             }
             results["mix_and_match"] = generate_cpp_model(8, default_mix, seed=inference_seed)
         

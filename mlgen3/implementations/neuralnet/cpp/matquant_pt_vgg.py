@@ -50,8 +50,6 @@ class MatQuantPT_VGG(Implementation):
         if not hasattr(self.model, 'state_dict'):
             print("Model doesn't have state_dict attribute. Can't analyze structure.")
             return
-
-        # print("\n=============Analyzing model structure for quantization...===============")
             
         # Initialize structures to store layer information
         self.quantizable_layers = []
@@ -59,7 +57,6 @@ class MatQuantPT_VGG(Implementation):
         
         # Direct inspection of model layers if the model has a Sequential structure
         if hasattr(self.model, 'model'): # and isinstance(self.model.model, nn.Sequential):
-            # print("Analyzing Sequential model structure...")
             layers = list(self.model.model)
             
             for idx, layer in enumerate(layers):
@@ -74,7 +71,12 @@ class MatQuantPT_VGG(Implementation):
                             'out_channels': layer.out_channels,
                             'in_channels': layer.in_channels,
                             'kernel_size': layer.kernel_size if isinstance(layer.kernel_size, tuple) 
-                                          else (layer.kernel_size, layer.kernel_size)
+                                          else (layer.kernel_size, layer.kernel_size),
+                            'stride': layer.stride if isinstance(layer.stride, tuple) else (layer.stride, layer.stride),
+                            'padding': layer.padding if isinstance(layer.padding, tuple) else (layer.padding, layer.padding),
+                            'dilation': layer.dilation if isinstance(layer.dilation, tuple) else (layer.dilation, layer.dilation),
+                            'groups': layer.groups,
+                            'has_bias': layer.bias is not None
                         }
                     elif isinstance(layer, nn.Conv1d):
                         self.layer_info[idx] = {
@@ -82,18 +84,26 @@ class MatQuantPT_VGG(Implementation):
                             'out_channels': layer.out_channels,
                             'in_channels': layer.in_channels,
                             'kernel_size': (layer.kernel_size[0], 1) if isinstance(layer.kernel_size, tuple)
-                                          else (layer.kernel_size, 1)
+                                          else (layer.kernel_size, 1),
+                            'stride': layer.stride if isinstance(layer.stride, tuple) else (layer.stride,),
+                            'padding': layer.padding if isinstance(layer.padding, tuple) else (layer.padding,),
+                            'dilation': layer.dilation if isinstance(layer.dilation, tuple) else (layer.dilation,),
+                            'groups': layer.groups,
+                            'has_bias': layer.bias is not None
                         }
                     elif isinstance(layer, nn.Linear):
                         self.layer_info[idx] = {
                             'type': 'linear',
                             'out_features': layer.out_features,
-                            'in_features': layer.in_features
+                            'in_features': layer.in_features,
+                            'has_bias': layer.bias is not None
                         }
                     elif isinstance(layer, nn.BatchNorm2d):
                         self.layer_info[idx] = {
                             'type': 'batchnorm2d',
-                            'num_features': layer.num_features
+                            'num_features': layer.num_features,
+                            'eps': layer.eps,
+                            'affine': layer.affine
                         }
                     print(f"Found quantizable layer {idx}: {type(layer).__name__}")
 
@@ -177,9 +187,6 @@ class MatQuantPT_VGG(Implementation):
         Extract and save model parameters to binary files.
         Processes all quantizable layers identified during model analysis.
         """
-
-
-        # print("\n=============extracting model parameters...===============")
         import struct
         import numpy as np
         import os
@@ -243,7 +250,7 @@ class MatQuantPT_VGG(Implementation):
             
                 # Process bias
                 bias_key = f'model.{layer_idx}.bias'
-                if bias_key in model_state:
+                if bias_key in model_state and layer_info.get('has_bias', True):
                     bias_tensor = model_state[bias_key].cpu().numpy()
                     
                     # MinMax quantization to 8 bits
@@ -271,16 +278,18 @@ class MatQuantPT_VGG(Implementation):
                     
                     print(f"Saved layer_{layer_idx}_bias.bin, shape: {bias_tensor.shape}, size: {bias_tensor.size}")
                 else:
-                    print(f"Warning: Bias key {bias_key} not found in model state")
+                    print(f"Warning: Bias key {bias_key} not found in model state or bias disabled for layer")
             
             # Process BatchNorm2d layers
             elif layer_type == 'batchnorm2d':
-                # BatchNorm has weight (gamma) and bias (beta) parameters
+                # BatchNorm has weight (gamma), bias (beta), running_mean, running_var, and eps
                 weight_key = f'model.{layer_idx}.weight'
                 bias_key = f'model.{layer_idx}.bias'
+                running_mean_key = f'model.{layer_idx}.running_mean'
+                running_var_key = f'model.{layer_idx}.running_var'
                 
                 # Extract and quantize weight (gamma/scale)
-                if weight_key in model_state:
+                if weight_key in model_state and layer_info.get('affine', True):
                     weight_tensor = model_state[weight_key].cpu().numpy()
                     
                     # MinMax quantization to 8 bits
@@ -300,11 +309,9 @@ class MatQuantPT_VGG(Implementation):
                         f.write(struct.pack('ff', scale, zero_point))
                     
                     print(f"Saved layer_{layer_idx}_weight.bin (BatchNorm), shape: {weight_tensor.shape}, size: {weight_tensor.size}")
-                else:
-                    print(f"Warning: BatchNorm weight key {weight_key} not found in model state")
                 
                 # Extract and quantize bias (beta/shift)
-                if bias_key in model_state:
+                if bias_key in model_state and layer_info.get('affine', True):
                     bias_tensor = model_state[bias_key].cpu().numpy()
                     
                     # MinMax quantization to 8 bits
@@ -324,8 +331,31 @@ class MatQuantPT_VGG(Implementation):
                         f.write(struct.pack('ff', scale, zero_point))
                     
                     print(f"Saved layer_{layer_idx}_bias.bin (BatchNorm), shape: {bias_tensor.shape}, size: {bias_tensor.size}")
-                else:
-                    print(f"Warning: BatchNorm bias key {bias_key} not found in model state")
+                
+                # Extract running_mean (no quantization needed for inference statistics)
+                if running_mean_key in model_state:
+                    running_mean = model_state[running_mean_key].cpu().numpy().astype(np.float32)
+                    
+                    with open(f"{self.model_binary_dir}/layer_{layer_idx}_running_mean.bin", "wb") as f:
+                        f.write(running_mean.tobytes())
+                    
+                    print(f"Saved layer_{layer_idx}_running_mean.bin, shape: {running_mean.shape}, size: {running_mean.size}")
+                
+                # Extract running_var (no quantization needed for inference statistics)
+                if running_var_key in model_state:
+                    running_var = model_state[running_var_key].cpu().numpy().astype(np.float32)
+                    
+                    with open(f"{self.model_binary_dir}/layer_{layer_idx}_running_var.bin", "wb") as f:
+                        f.write(running_var.tobytes())
+                    
+                    print(f"Saved layer_{layer_idx}_running_var.bin, shape: {running_var.shape}, size: {running_var.size}")
+                
+                # Save eps parameter
+                eps = layer_info.get('eps', 1e-5)
+                with open(f"{self.model_binary_dir}/layer_{layer_idx}_eps.bin", "wb") as f:
+                    f.write(struct.pack('f', eps))
+                
+                print(f"Saved layer_{layer_idx}_eps.bin (value: {eps})")
     
         print(f"\nAll model parameters extracted and saved to {self.model_binary_dir}\n")
     
@@ -435,9 +465,10 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
                 code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 
-                code.append(f"    // Load bias for layer {layer_idx}")
-                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_channels});")
-                code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                if layer_info.get('has_bias', True):
+                    code.append(f"    // Load bias for layer {layer_idx}")
+                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_channels});")
+                    code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                 
             elif layer_type == 'linear':
                 in_features = layer_info.get('in_features', 1024)
@@ -448,18 +479,31 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
                 code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 
-                code.append(f"    // Load bias for layer {layer_idx}")
-                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_features});")
-                code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                if layer_info.get('has_bias', True):
+                    code.append(f"    // Load bias for layer {layer_idx}")
+                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_features});")
+                    code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
             
             elif layer_type == 'batchnorm2d':
                 num_features = layer_info.get('num_features', 64)
                 
                 code.append(f"    // Load BatchNorm2d parameters for layer {layer_idx}")
-                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {num_features});")
-                code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
-                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {num_features});")
-                code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                
+                if layer_info.get('affine', True):
+                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {num_features});")
+                    code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {num_features});")
+                    code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                
+                # Load running statistics for inference
+                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_running_mean.bin\", layer_{layer_idx}_running_mean, {num_features});")
+                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_running_var.bin\", layer_{layer_idx}_running_var, {num_features});")
+                code.append(f"    // Load eps parameter")
+                code.append(f"    std::ifstream eps_file_{layer_idx}(\"{binary_dir_name}/layer_{layer_idx}_eps.bin\", std::ios::binary);")
+                code.append(f"    if (eps_file_{layer_idx}.is_open()) {{")
+                code.append(f"        eps_file_{layer_idx}.read(reinterpret_cast<char*>(&layer_{layer_idx}_eps), sizeof(float));")
+                code.append(f"        eps_file_{layer_idx}.close();")
+                code.append(f"    }}")
         
         # Add code to precompute dequantized weights for all layers
         code.append("\n    std::cout << \"Precomputing dequantized weights and biases for faster inference...\" << std::endl;")
@@ -483,14 +527,15 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
                 code.append("    }")
                 
-                code.append(f"    // Precompute dequantized biases for Layer {layer_idx}")
-                code.append(f"    layer_{layer_idx}_bias_dequant.resize({out_channels});")
-                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
-                code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
-                code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
-                code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
-                code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
-                code.append("    }")
+                if layer_info.get('has_bias', True):
+                    code.append(f"    // Precompute dequantized biases for Layer {layer_idx}")
+                    code.append(f"    layer_{layer_idx}_bias_dequant.resize({out_channels});")
+                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
+                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                    code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
+                    code.append("    }")
                 
             elif layer_type == 'linear':
                 in_features = layer_info.get('in_features', 1024)
@@ -506,35 +551,37 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
                 code.append("    }")
                 
-                code.append(f"    // Precompute dequantized biases for Layer {layer_idx}")
-                code.append(f"    layer_{layer_idx}_bias_dequant.resize({out_features});")
-                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
-                code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
-                code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
-                code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
-                code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
-                code.append("    }")
+                if layer_info.get('has_bias', True):
+                    code.append(f"    // Precompute dequantized biases for Layer {layer_idx}")
+                    code.append(f"    layer_{layer_idx}_bias_dequant.resize({out_features});")
+                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
+                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                    code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
+                    code.append("    }")
             
             elif layer_type == 'batchnorm2d':
                 num_features = layer_info.get('num_features', 64)
                 
-                code.append(f"    // Precompute dequantized weights for BatchNorm Layer {layer_idx}")
-                code.append(f"    layer_{layer_idx}_weights_dequant.resize({num_features});")
-                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
-                code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
-                code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
-                code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
-                code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
-                code.append("    }")
-                
-                code.append(f"    // Precompute dequantized biases for BatchNorm Layer {layer_idx}")
-                code.append(f"    layer_{layer_idx}_bias_dequant.resize({num_features});")
-                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
-                code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
-                code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
-                code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
-                code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
-                code.append("    }")
+                if layer_info.get('affine', True):
+                    code.append(f"    // Precompute dequantized weights for BatchNorm Layer {layer_idx}")
+                    code.append(f"    layer_{layer_idx}_weights_dequant.resize({num_features});")
+                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
+                    code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                    code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                    code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
+                    code.append("    }")
+                    
+                    code.append(f"    // Precompute dequantized biases for BatchNorm Layer {layer_idx}")
+                    code.append(f"    layer_{layer_idx}_bias_dequant.resize({num_features});")
+                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
+                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                    code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
+                    code.append("    }")
         
         code.append("    files_loaded = true;")
         code.append("    std::cout << \"Model parameters loaded successfully.\" << std::endl << std::endl;")
@@ -552,18 +599,195 @@ class MatQuantPT_VGG(Implementation):
         
         for layer_idx in self.quantizable_layers:
             layer_info = self.layer_info.get(layer_idx, {})
-            declarations.append(f"// {layer_info.get('type', 'unknown')} layer {layer_idx}")
-            declarations.append(f"std::vector<uint8_t> layer_{layer_idx}_weight_q8;")
-            declarations.append(f"float layer_{layer_idx}_weight_scale = 1.0f;")
-            declarations.append(f"float layer_{layer_idx}_weight_zero_point = 0.0f;")
-            declarations.append(f"std::vector<uint8_t> layer_{layer_idx}_bias_q8;")
-            declarations.append(f"float layer_{layer_idx}_bias_scale = 1.0f;")
-            declarations.append(f"float layer_{layer_idx}_bias_zero_point = 0.0f;")
-            declarations.append(f"std::vector<float> layer_{layer_idx}_weights_dequant;")
-            declarations.append(f"std::vector<float> layer_{layer_idx}_bias_dequant;")
+            layer_type = layer_info.get('type', 'unknown')
+            
+            declarations.append(f"// {layer_type} layer {layer_idx}")
+            
+            if layer_type in ['conv', 'conv1d', 'linear']:
+                declarations.append(f"std::vector<uint8_t> layer_{layer_idx}_weight_q8;")
+                declarations.append(f"float layer_{layer_idx}_weight_scale = 1.0f;")
+                declarations.append(f"float layer_{layer_idx}_weight_zero_point = 0.0f;")
+                declarations.append(f"std::vector<float> layer_{layer_idx}_weights_dequant;")
+                
+                if layer_info.get('has_bias', True):
+                    declarations.append(f"std::vector<uint8_t> layer_{layer_idx}_bias_q8;")
+                    declarations.append(f"float layer_{layer_idx}_bias_scale = 1.0f;")
+                    declarations.append(f"float layer_{layer_idx}_bias_zero_point = 0.0f;")
+                    declarations.append(f"std::vector<float> layer_{layer_idx}_bias_dequant;")
+                    
+            elif layer_type == 'batchnorm2d':
+                if layer_info.get('affine', True):
+                    declarations.append(f"std::vector<uint8_t> layer_{layer_idx}_weight_q8;")
+                    declarations.append(f"float layer_{layer_idx}_weight_scale = 1.0f;")
+                    declarations.append(f"float layer_{layer_idx}_weight_zero_point = 0.0f;")
+                    declarations.append(f"std::vector<float> layer_{layer_idx}_weights_dequant;")
+                    declarations.append(f"std::vector<uint8_t> layer_{layer_idx}_bias_q8;")
+                    declarations.append(f"float layer_{layer_idx}_bias_scale = 1.0f;")
+                    declarations.append(f"float layer_{layer_idx}_bias_zero_point = 0.0f;")
+                    declarations.append(f"std::vector<float> layer_{layer_idx}_bias_dequant;")
+                
+                # Running statistics for inference
+                declarations.append(f"std::vector<float> layer_{layer_idx}_running_mean;")
+                declarations.append(f"std::vector<float> layer_{layer_idx}_running_var;")
+                declarations.append(f"float layer_{layer_idx}_eps = 1e-5f;")
+                
             declarations.append("")
             
         return "\n".join(declarations)
+    
+    def _generate_binary_loading_code(self, binary_dir_name):
+        """Generate C++ code to load binary model parameters."""
+
+
+        # print("\n=============generate binary loading code...===============")
+
+        if not self.quantizable_layers:
+            return "// No quantizable layers identified for binary loading"
+            
+        code = []
+        code.append("// Load binary files if not loaded")
+        code.append("static bool files_loaded = false;")
+        code.append("if (!files_loaded) {")
+        code.append("    std::cout << std::endl << \"Loading model parameters from binary files...\" << std::endl;")
+        
+        # Generate load statements for each quantizable layer
+        for layer_idx in self.quantizable_layers:
+            layer_info = self.layer_info.get(layer_idx, {})
+            layer_type = layer_info.get('type', 'unknown')
+            
+            if layer_type == 'conv':
+                in_channels = layer_info.get('in_channels', 1)
+                out_channels = layer_info.get('out_channels', 64)
+                kernel_h, kernel_w = layer_info.get('kernel_size', (3, 3))
+                weight_size = out_channels * in_channels * kernel_h * kernel_w
+                
+                code.append(f"    // Load weights for layer {layer_idx} ({layer_type})")
+                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
+                code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                
+                if layer_info.get('has_bias', True):
+                    code.append(f"    // Load bias for layer {layer_idx}")
+                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_channels});")
+                    code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                
+            elif layer_type == 'linear':
+                in_features = layer_info.get('in_features', 1024)
+                out_features = layer_info.get('out_features', 10)
+                weight_size = out_features * in_features
+                
+                code.append(f"    // Load weights for layer {layer_idx} ({layer_type})")
+                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
+                code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                
+                if layer_info.get('has_bias', True):
+                    code.append(f"    // Load bias for layer {layer_idx}")
+                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_features});")
+                    code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+            
+            elif layer_type == 'batchnorm2d':
+                num_features = layer_info.get('num_features', 64)
+                
+                code.append(f"    // Load BatchNorm2d parameters for layer {layer_idx}")
+                
+                if layer_info.get('affine', True):
+                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {num_features});")
+                    code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {num_features});")
+                    code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                
+                # Load running statistics for inference
+                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_running_mean.bin\", layer_{layer_idx}_running_mean, {num_features});")
+                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_running_var.bin\", layer_{layer_idx}_running_var, {num_features});")
+                code.append(f"    // Load eps parameter")
+                code.append(f"    std::ifstream eps_file_{layer_idx}(\"{binary_dir_name}/layer_{layer_idx}_eps.bin\", std::ios::binary);")
+                code.append(f"    if (eps_file_{layer_idx}.is_open()) {{")
+                code.append(f"        eps_file_{layer_idx}.read(reinterpret_cast<char*>(&layer_{layer_idx}_eps), sizeof(float));")
+                code.append(f"        eps_file_{layer_idx}.close();")
+                code.append(f"    }}")
+        
+        # Add code to precompute dequantized weights for all layers
+        code.append("\n    std::cout << \"Precomputing dequantized weights and biases for faster inference...\" << std::endl;")
+        
+        for layer_idx in self.quantizable_layers:
+            layer_info = self.layer_info.get(layer_idx, {})
+            layer_type = layer_info.get('type', 'unknown')
+            
+            if layer_type == 'conv':
+                in_channels = layer_info.get('in_channels', 1)
+                out_channels = layer_info.get('out_channels', 64)
+                kernel_h, kernel_w = layer_info.get('kernel_size', (3, 3))
+                weight_size = out_channels * in_channels * kernel_h * kernel_w
+                
+                code.append(f"    // Precompute dequantized weights for Layer {layer_idx}")
+                code.append(f"    layer_{layer_idx}_weights_dequant.resize({weight_size});")
+                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
+                code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
+                code.append("    }")
+                
+                if layer_info.get('has_bias', True):
+                    code.append(f"    // Precompute dequantized biases for Layer {layer_idx}")
+                    code.append(f"    layer_{layer_idx}_bias_dequant.resize({out_channels});")
+                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
+                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                    code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
+                    code.append("    }")
+                
+            elif layer_type == 'linear':
+                in_features = layer_info.get('in_features', 1024)
+                out_features = layer_info.get('out_features', 10)
+                weight_size = out_features * in_features
+                
+                code.append(f"    // Precompute dequantized weights for Layer {layer_idx}")
+                code.append(f"    layer_{layer_idx}_weights_dequant.resize({weight_size});")
+                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
+                code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
+                code.append("    }")
+                
+                if layer_info.get('has_bias', True):
+                    code.append(f"    // Precompute dequantized biases for Layer {layer_idx}")
+                    code.append(f"    layer_{layer_idx}_bias_dequant.resize({out_features});")
+                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
+                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                    code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
+                    code.append("    }")
+            
+            elif layer_type == 'batchnorm2d':
+                num_features = layer_info.get('num_features', 64)
+                
+                if layer_info.get('affine', True):
+                    code.append(f"    // Precompute dequantized weights for BatchNorm Layer {layer_idx}")
+                    code.append(f"    layer_{layer_idx}_weights_dequant.resize({num_features});")
+                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
+                    code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                    code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                    code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
+                    code.append("    }")
+                    
+                    code.append(f"    // Precompute dequantized biases for BatchNorm Layer {layer_idx}")
+                    code.append(f"    layer_{layer_idx}_bias_dequant.resize({num_features});")
+                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
+                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                    code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
+                    code.append("    }")
+        
+        code.append("    files_loaded = true;")
+        code.append("    std::cout << \"Model parameters loaded successfully.\" << std::endl << std::endl;")
+        code.append("}")
+        
+        return "\n".join(code)
     
     def _generate_layer_implementations(self):
         """Generate C++ code for VGG model layer implementations."""
@@ -621,20 +845,26 @@ class MatQuantPT_VGG(Implementation):
                 # Determine output dimensions
                 out_h, out_w = out_shape[1], out_shape[2] if len(out_shape) == 3 else (1, 1)
                 
-                # Generate convolution implementation with fixed weight indexing
+                # Generate convolution implementation with proper inference formula
                 implementations.append(f"// Layer {i}: Conv2d")
                 implementations.append(f"std::vector<std::vector<std::vector<float>>> layer_{i}_3d({out_channels}, std::vector<std::vector<float>>({out_h}, std::vector<float>({out_w}, 0.0f)));")
                 implementations.append("")
-                implementations.append("// Initialize output with precomputed dequantized bias")
-                implementations.append(f"for (int out_c = 0; out_c < {out_channels}; out_c++) {{")
-                implementations.append(f"    for (int h_out = 0; h_out < {out_h}; h_out++) {{")
-                implementations.append(f"        for (int w_out = 0; w_out < {out_w}; w_out++) {{")
-                implementations.append(f"            layer_{i}_3d[out_c][h_out][w_out] = layer_{i}_bias_dequant[out_c];")
-                implementations.append("        }")
-                implementations.append("    }")
-                implementations.append("}")
+                
+                # Initialize output with bias if present
+                if i in self.layer_info and self.layer_info[i].get('has_bias', True):
+                    implementations.append("// Initialize output with precomputed dequantized bias")
+                    implementations.append(f"for (int out_c = 0; out_c < {out_channels}; out_c++) {{")
+                    implementations.append(f"    for (int h_out = 0; h_out < {out_h}; h_out++) {{")
+                    implementations.append(f"        for (int w_out = 0; w_out < {out_w}; w_out++) {{")
+                    implementations.append(f"            layer_{i}_3d[out_c][h_out][w_out] = layer_{i}_bias_dequant[out_c];")
+                    implementations.append("        }")
+                    implementations.append("    }")
+                    implementations.append("}")
+                else:
+                    implementations.append("// No bias - initialize to zero")
+                
                 implementations.append("")
-                implementations.append("// Perform convolution with precomputed dequantized weights")
+                implementations.append("// Perform convolution: y[out_c, h_out, w_out] = sum(x[in_c, h, w] * W[out_c, in_c, kh, kw]) + b[out_c]")
                 implementations.append("// PyTorch Conv2d: weight shape is [out_channels, in_channels, kernel_h, kernel_w]")
                 implementations.append(f"for (int out_c = 0; out_c < {out_channels}; out_c++) {{")
                 implementations.append(f"    for (int in_c = 0; in_c < {in_channels}; in_c++) {{")
@@ -703,7 +933,7 @@ class MatQuantPT_VGG(Implementation):
                 implementations.append(f"// Layer {i}: MaxPool2d")
                 implementations.append(f"std::vector<std::vector<std::vector<float>>> layer_{i}_3d({out_c}, std::vector<std::vector<float>>({out_h}, std::vector<float>({out_w}, 0.0f)));")
                 implementations.append("")
-                implementations.append("// Perform max pooling")
+                implementations.append("// Perform max pooling: y[c, h_out, w_out] = max(x[c, h:h+kh, w:w+kw])")
                 implementations.append(f"for (int c = 0; c < {out_c}; c++) {{")
                 implementations.append(f"    for (int h_out = 0; h_out < {out_h}; h_out++) {{")
                 implementations.append(f"        for (int w_out = 0; w_out < {out_w}; w_out++) {{")
@@ -752,21 +982,38 @@ class MatQuantPT_VGG(Implementation):
                 current_shape = out_shape
                 
             elif isinstance(layer, nn.BatchNorm2d):
-                # BatchNorm2d doesn't change shape, but still copy the tensor
+                # BatchNorm2d uses running statistics for inference
+                # Formula: y = gamma * ((x - running_mean) / sqrt(running_var + eps)) + beta
                 if current_format == "3d":
                     c, h, w = out_shape
                     
                     implementations.append(f"// Layer {i}: BatchNorm2d")
                     implementations.append(f"std::vector<std::vector<std::vector<float>>> layer_{i}_3d({c}, std::vector<std::vector<float>>({h}, std::vector<float>({w}, 0.0f)));")
                     implementations.append("")
-                    implementations.append("// Apply BatchNorm transformation: output = input * weight + bias")
-                    implementations.append(f"for (int c = 0; c < {c}; c++) {{")
-                    implementations.append(f"    for (int h = 0; h < {h}; h++) {{")
-                    implementations.append(f"        for (int w = 0; w < {w}; w++) {{")
-                    implementations.append(f"            layer_{i}_3d[c][h][w] = {input_name}[c][h][w] * layer_{i}_weights_dequant[c] + layer_{i}_bias_dequant[c];")
-                    implementations.append("        }")
-                    implementations.append("    }")
-                    implementations.append("}")
+                    implementations.append("// Apply BatchNorm inference formula:")
+                    implementations.append("// y = gamma * ((x - running_mean) / sqrt(running_var + eps)) + beta")
+                    
+                    layer_info = self.layer_info.get(i, {})
+                    if layer_info.get('affine', True):
+                        implementations.append(f"for (int c = 0; c < {c}; c++) {{")
+                        implementations.append(f"    float inv_std = 1.0f / std::sqrt(layer_{i}_running_var[c] + layer_{i}_eps);")
+                        implementations.append(f"    for (int h = 0; h < {h}; h++) {{")
+                        implementations.append(f"        for (int w = 0; w < {w}; w++) {{")
+                        implementations.append(f"            float normalized = ({input_name}[c][h][w] - layer_{i}_running_mean[c]) * inv_std;")
+                        implementations.append(f"            layer_{i}_3d[c][h][w] = layer_{i}_weights_dequant[c] * normalized + layer_{i}_bias_dequant[c];")
+                        implementations.append("        }")
+                        implementations.append("    }")
+                        implementations.append("}")
+                    else:
+                        # Non-affine BatchNorm (no learnable gamma/beta)
+                        implementations.append(f"for (int c = 0; c < {c}; c++) {{")
+                        implementations.append(f"    float inv_std = 1.0f / std::sqrt(layer_{i}_running_var[c] + layer_{i}_eps);")
+                        implementations.append(f"    for (int h = 0; h < {h}; h++) {{")
+                        implementations.append(f"        for (int w = 0; w < {w}; w++) {{")
+                        implementations.append(f"            layer_{i}_3d[c][h][w] = ({input_name}[c][h][w] - layer_{i}_running_mean[c]) * inv_std;")
+                        implementations.append("        }")
+                        implementations.append("    }")
+                        implementations.append("}")
                     
                     if self.debug:
                         implementations.append("")
@@ -825,7 +1072,6 @@ class MatQuantPT_VGG(Implementation):
                     c, h, w = in_shape
                     flattened_size = c * h * w
                     
-                    implementations.append(f"// Layer {i}: Flatten")
                     implementations.append(f"// Flatten 3D tensor to 1D (size: {flattened_size})")
                     implementations.append(f"std::vector<float> layer_{i}({flattened_size});")
                     implementations.append(f"int idx = 0;")
@@ -851,19 +1097,28 @@ class MatQuantPT_VGG(Implementation):
                     implementations.append(f"std::vector<float> layer_{i}({input_name}, {input_name} + {in_shape[0]});")
                 
             elif isinstance(layer, nn.Linear):
-                # Linear layer
+                # Linear layer: y = x * W^T + b
                 in_features = layer.in_features
                 out_features = layer.out_features
                 
                 implementations.append(f"// Layer {i}: Linear ({in_features} -> {out_features})")
+                implementations.append("// Inference formula: y = x * W^T + b")
                 
-                # Initialize output with bias
-                implementations.append(f"for (int o = 0; o < {out_features}; o++) {{")
-                implementations.append(f"    layer_{i}[o] = layer_{i}_bias_dequant[o];")
-                implementations.append("}")
+                # Initialize output with bias if present
+                layer_info = self.layer_info.get(i, {})
+                if layer_info.get('has_bias', True):
+                    implementations.append(f"for (int o = 0; o < {out_features}; o++) {{")
+                    implementations.append(f"    layer_{i}[o] = layer_{i}_bias_dequant[o];")
+                    implementations.append("}")
+                else:
+                    implementations.append(f"for (int o = 0; o < {out_features}; o++) {{")
+                    implementations.append(f"    layer_{i}[o] = 0.0f;")
+                    implementations.append("}")
+                
                 implementations.append("")
                 
-                # Matrix multiplication
+                # Matrix multiplication: output[o] += input[j] * weight[o][j]
+                # PyTorch Linear: weight shape is [out_features, in_features]
                 implementations.append(f"for (int o = 0; o < {out_features}; o++) {{")
                 implementations.append(f"    for (int j = 0; j < {in_features}; j++) {{")
                 implementations.append(f"        layer_{i}[o] += {input_name}[j] * layer_{i}_weights_dequant[o * {in_features} + j];")

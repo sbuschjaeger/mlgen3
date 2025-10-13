@@ -41,29 +41,14 @@ test_y = torch.tensor(y_test, dtype=torch.long)
 class VGG(nn.Module):
     def __init__(self):
         super(VGG, self).__init__()
-        # self.model = nn.Sequential(
-        #     nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        #     nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-        #     nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
-        #     nn.ReLU(inplace=True),
-        #     nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-        #     nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-        #     nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
-        #     nn.ReLU(inplace=True),
-        #     nn.Flatten(start_dim=1, end_dim=-1),
-        #     nn.Linear(in_features=3136, out_features=2048, bias=True),
-        #     nn.ReLU(),
-        #     nn.Linear(in_features=2048, out_features=10, bias=True)
-        # )
-
         self.model = nn.Sequential(
             nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
             nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-            # nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
             nn.ReLU(inplace=True),
             nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
             nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-            # nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
             nn.ReLU(inplace=True),
             nn.Flatten(start_dim=1, end_dim=-1),
             nn.Linear(in_features=3136, out_features=2048, bias=True),
@@ -102,7 +87,7 @@ config = {
         'target_bits': [8, 4, 2],
         'loss_weights': {8: 0.4, 4: 0.8, 2: 0.8},
         'quantize_bias': True,
-        'quantize_target': 'weights_only', # 'weights_and_activations' or 'weights_only'
+        'quantize_target': 'weights_and_activations', # 'weights_and_activations' or 'weights_only'
         'quantize_layers': [
             # Will be filled by layer_registry
         ]
@@ -158,17 +143,12 @@ def train_model(args):
     # Set quantize_layers in config
     # For VGG4, focusing on model.0.weight (first conv), model.4.weight (second conv), 
     # model.9.weight (first linear), and model.11.weight (second linear)
-    # config['quantization']['quantize_layers'] = [
-    #     "model.0.weight",
-    #     "model.4.weight",
-    #     "model.9.weight",
-    #     "model.11.weight"
-    # ]
+    # TODO add batchnorm layers too
     config['quantization']['quantize_layers'] = [
         "model.0.weight",
-        "model.3.weight",
-        "model.7.weight",
-        "model.9.weight"
+        "model.4.weight",
+        "model.9.weight",
+        "model.11.weight"
     ]
     
     print(f"Registered layers for quantization: {config['quantization']['quantize_layers']}")
@@ -269,17 +249,12 @@ def extract_and_test_models(mq_model):
         extracted_models[bits] = mq_model.extract_model(bits).to(device)
     
     # Create mix-and-match model
-    # mix_config = {
-    #     'model.0.weight': 8, 
-    #     'model.4.weight': 4, 
-    #     'model.9.weight': 2,
-    #     'model.11.weight': 2
-    # }
+    # TODO add batchnorm layers too
     mix_config = {
         'model.0.weight': 8, 
-        'model.3.weight': 4, 
-        'model.7.weight': 2,
-        'model.9.weight': 2
+        'model.4.weight': 4, 
+        'model.9.weight': 2,
+        'model.11.weight': 2
     }
     mix_model = mq_model.mix_and_match(mix_config).to(device)
     
@@ -367,28 +342,15 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707, de
             
             # Create a model with the same structure as the one that generated the state dict
             # This is needed for the MatQuantPT_VGG.analyze_model() function
-            # self.model = nn.Sequential(
-            #     nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            #     nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-            #     nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
-            #     nn.ReLU(inplace=True),
-            #     nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            #     nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-            #     nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
-            #     nn.ReLU(inplace=True),
-            #     nn.Flatten(start_dim=1, end_dim=-1),
-            #     nn.Linear(in_features=3136, out_features=2048, bias=True),
-            #     nn.ReLU(),
-            #     nn.Linear(in_features=2048, out_features=10, bias=True)
-            # )
+            # TODO just copy from existing model defined in VGG class above
             self.model = nn.Sequential(
                 nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
                 nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-                # nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+                nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
                 nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False),
-                # nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+                nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
                 nn.ReLU(inplace=True),
                 nn.Flatten(start_dim=1, end_dim=-1),
                 nn.Linear(in_features=3136, out_features=2048, bias=True),
@@ -547,17 +509,12 @@ if __name__ == "__main__":
         
         # Generate mix-and-match model
         if args.mix:
-            # default_mix = {
-            #     'model.0.weight': 8,
-            #     'model.4.weight': 4,
-            #     'model.9.weight': 2,
-            #     'model.11.weight': 2
-            # }
+            # TODO add batchnorm layers too
             default_mix = {
                 'model.0.weight': 8,
-                'model.3.weight': 4,
-                'model.7.weight': 2,
-                'model.9.weight': 2
+                'model.4.weight': 4,
+                'model.9.weight': 2,
+                'model.11.weight': 2
             }
             results["mix_and_match"] = generate_cpp_model(
                 8, 
