@@ -10,7 +10,9 @@ quantization:
 
   quantize_bias: True
   quantize_target: "weights_and_activations"  # Options: "weights_only", "activations_only", "weights_and_activations"
-
+  
+  quantize_signed: False # Whether to use signed quantization (default: False for unsigned)
+       
   # ## for evaluating multiple (also untrained) bit-widths
   # target_bits: [8, 7, 6, 5, 4, 3, 2, 1]
   # loss_weights: {8: 0.4, 7: 0.0, 6: 0.0, 5: 0.0, 4: 0.8, 3: 0.0, 2: 0.8, 1: 0.0}

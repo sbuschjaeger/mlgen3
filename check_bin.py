@@ -4,19 +4,21 @@ import struct
 import re
 from collections import defaultdict
 import matplotlib.pyplot as plt
+import argparse
 
 def read_binary_file(file_path):
     """Read a binary file and return its contents as bytes."""
     with open(file_path, 'rb') as f:
         return f.read()
 
-def parse_weight_file(data, print_stats=True, plot_hist=True, max_elements=20):
+def parse_weight_file(data, print_stats=True, plot_hist=True, max_elements=20, is_signed=False):
     """Parse weight binary file and print stats."""
-    # Assuming uint8 data for weights
-    weights = np.frombuffer(data, dtype=np.uint8)
+    # Choose dtype based on signed/unsigned
+    dtype = np.int8 if is_signed else np.uint8
+    weights = np.frombuffer(data, dtype=dtype)
     
     print(f"Shape: {weights.shape}")
-    print(f"Data type: uint8")
+    print(f"Data type: {dtype}")
     print(f"Min value: {weights.min()}")
     print(f"Max value: {weights.max()}")
     print(f"Mean value: {weights.mean():.4f}")
@@ -47,7 +49,7 @@ def parse_qparams_file(data):
         print(f"Unexpected data length: {len(data)}")
         return None
 
-def analyze_bin_files(directory):
+def analyze_bin_files(directory, is_signed=False):
     """Analyze all bin files in the directory."""
     bin_files = [f for f in os.listdir(directory) if f.endswith('.bin')]
     bin_files.sort()  # Sort for consistent output
@@ -73,7 +75,7 @@ def analyze_bin_files(directory):
             data_path = os.path.join(directory, files["data"])
             print(f"\nAnalyzing {files['data']}:")
             data = read_binary_file(data_path)
-            weights = parse_weight_file(data)
+            weights = parse_weight_file(data, is_signed=is_signed)
         
         # Process qparams file if exists
         if "qparams" in files:
@@ -93,12 +95,18 @@ def analyze_bin_files(directory):
                 print(f"First 10 dequantized values: {[f'{v:.6f}' for v in dequantized[:10]]}")
 
 if __name__ == "__main__":
-    # Path to the directory containing binary files
-    # bin_dir = "generated_code/matquant_pt_mnist/uniform_4bit/mq_pt_model_binary"
-    bin_dir = "generated_code/matquant_pt_vgg4/uniform_8bit/mq_pt_model_binary"
+    parser = argparse.ArgumentParser(description='Analyze binary weight/bias files')
+    parser.add_argument('--dir', type=str, 
+                        default="generated_code/matquant_pt_vgg4/uniform_8bit/mq_pt_model_binary",
+                        help='Directory containing binary files')
+    parser.add_argument('--signed', action='store_true',
+                        help='Use signed int8 instead of unsigned uint8 for weights/biases')
     
-    if os.path.exists(bin_dir):
-        print(f"Analyzing binary files in {bin_dir}...\n")
-        analyze_bin_files(bin_dir)
+    args = parser.parse_args()
+    
+    if os.path.exists(args.dir):
+        print(f"Analyzing binary files in {args.dir}...")
+        print(f"Using {'signed' if args.signed else 'unsigned'} integers\n")
+        analyze_bin_files(args.dir, is_signed=args.signed)
     else:
-        print(f"Directory {bin_dir} does not exist.")
+        print(f"Directory {args.dir} does not exist.")

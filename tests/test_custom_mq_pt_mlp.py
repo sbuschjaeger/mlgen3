@@ -67,6 +67,7 @@ config = {
         'loss_weights': {8: 0.4, 4: 0.4, 2: 0.2},
         'quantize_bias': True,
         'quantize_target': 'weights_and_activations', # 'weights_and_activations' or 'weights_only'
+        'quantize_signed': True, # Whether to use signed quantization (default: False for unsigned)
         'quantize_layers': [
             'model.0.weight',
             'model.3.weight',
@@ -330,7 +331,7 @@ def generate_uniform_model(bit_width, model_path=None, seed=707):
         implementation, 
         measure_accuracy=True, 
         measure_time=True,
-        test_samples=10000,
+        test_samples=1000,
         filename=f"matquant_pt_{bit_width}bit",
         seed=seed
     )

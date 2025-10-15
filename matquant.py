@@ -71,6 +71,7 @@ class MatQuant(nn.Module):
                     - quantize_layers (List[str]): List of layer names to quantize (default: all FFN layers).
                     - quantize_target (str): What to quantize (weights_only, activations_only, weights_and_activations)
                     - quantize_bias (bool): Whether to also quantize bias terms (default: False)
+                    - quantize_signed (bool): Whether to use signed quantization (default: False)
         """
 
         super(MatQuant, self).__init__()
@@ -82,6 +83,7 @@ class MatQuant(nn.Module):
         self.loss_weights = {k: v for k, v in sorted(config['quantization']['loss_weights'].items(), reverse=True)}
         self.quantize_target = config['quantization'].get('quantize_target', 'weights_only')
         self.quantize_bias = config['quantization'].get('quantize_bias', False)
+        self.quantize_signed = config['quantization'].get('quantize_signed', False)
         
         # Assert loss_weights keys are in target_bits
         invalid_bits = [bit for bit in self.loss_weights.keys() if bit not in self.target_bits]
@@ -291,11 +293,22 @@ class MatQuant(nn.Module):
         # Determine scaling factor (alpha) based on min and max values (MinMax Quantization)
         w_min = w.min()
         w_max = w.max()
-        scaling_factor = (w_max - w_min) / (2**c - 1)
-        zero_point = -w_min / scaling_factor if scaling_factor != 0 else 0
         
+        if self.quantize_signed:
+            # Signed quantization: range is [-2^(c-1), 2^(c-1) - 1]
+            q_min = -(2**(c-1))
+            q_max = 2**(c-1) - 1
+            scaling_factor = (w_max - w_min) / (q_max - q_min)
+            zero_point = -w_min / scaling_factor + q_min if scaling_factor != 0 else q_min
+        else:
+            # Unsigned quantization: range is [0, 2^c - 1]
+            q_min = 0
+            q_max = 2**c - 1
+            scaling_factor = (w_max - w_min) / (q_max - q_min)
+            zero_point = -w_min / scaling_factor if scaling_factor != 0 else 0
+
         # Quantize the weights
-        quantized_w = torch.clamp(torch.round(w / scaling_factor + zero_point), 0, 2**c - 1)
+        quantized_w = torch.clamp(torch.round(w / scaling_factor + zero_point), q_min, q_max)
 
         # Dequantize separately, after slicing
                 
@@ -374,7 +387,14 @@ class MatQuant(nn.Module):
             x_sliced = torch.floor(x_int / (2**shift_bits))
 
         # Clamp to ensure values are within the target bit-width range
-        x_sliced = torch.clamp(x_sliced, 0, 2**target_bits - 1)
+        if self.quantize_signed:
+            q_min = -(2**(target_bits-1))
+            q_max = 2**(target_bits-1) - 1
+        else:
+            q_min = 0
+            q_max = 2**target_bits - 1
+            
+        x_sliced = torch.clamp(x_sliced, q_min, q_max)
 
         # Scale back to original range (same as right shift)
         x_sliced = x_sliced * (2**shift_bits)

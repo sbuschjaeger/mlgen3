@@ -26,6 +26,7 @@ class MatQuantPT_VGG(Implementation):
         self.input_width = input_width
         self.input_channels = input_channels
         self.debug = debug  # Add debug flag
+        self.quantize_signed = getattr(model, 'quantize_signed', False)  # Get from model config
         
         # Will be populated during model analysis
         self.layer_info = {}  # Store info about each layer
@@ -226,11 +227,17 @@ class MatQuantPT_VGG(Implementation):
                 # MinMax quantization to 8 bits
                 w_min = weight_flat.min()
                 w_max = weight_flat.max()
-                scale = (w_max - w_min) / 255.0  # 8-bit = 255 values
-                zero_point = -w_min / scale if scale != 0 else 0
                 
-                # Quantize weights
-                quantized_weights = np.clip(np.round(weight_flat / scale + zero_point), 0, 255).astype(np.uint8)
+                if self.quantize_signed:
+                    # Signed quantization: range is [-128, 127]
+                    scale = (w_max - w_min) / 255.0  # 8-bit = 255 values
+                    zero_point = -w_min / scale - 128 if scale != 0 else -128
+                    quantized_weights = np.clip(np.round(weight_flat / scale + zero_point), -128, 127).astype(np.int8)
+                else:
+                    # Unsigned quantization: range is [0, 255]
+                    scale = (w_max - w_min) / 255.0  # 8-bit = 255 values
+                    zero_point = -w_min / scale if scale != 0 else 0
+                    quantized_weights = np.clip(np.round(weight_flat / scale + zero_point), 0, 255).astype(np.uint8)
                 
                 # Save quantized weights and quantization parameters
                 with open(f"{self.model_binary_dir}/layer_{layer_idx}_weight.bin", "wb") as f:
@@ -244,6 +251,7 @@ class MatQuantPT_VGG(Implementation):
                     print(f"Weight stats for layer {layer_idx}: min={w_min}, max={w_max}, scale={scale}, zero_point={zero_point}")
                     print(f"Sample weights: {weight_flat[:10]}")
                     print(f"Sample quantized weights: {quantized_weights[:10]}")
+                    print(f"Quantization mode: {'signed' if self.quantize_signed else 'unsigned'}")
                     print("=========================================================================")
                 
                 print(f"Saved layer_{layer_idx}_weight.bin, shape: {weight_tensor.shape}, size: {weight_size}")
@@ -256,11 +264,15 @@ class MatQuantPT_VGG(Implementation):
                     # MinMax quantization to 8 bits
                     b_min = bias_tensor.min()
                     b_max = bias_tensor.max()
-                    scale = (b_max - b_min) / 255.0 if b_max > b_min else 1.0
-                    zero_point = -b_min / scale if scale != 0 else 0
                     
-                    # Quantize bias
-                    quantized_bias = np.clip(np.round(bias_tensor / scale + zero_point), 0, 255).astype(np.uint8)
+                    if self.quantize_signed:
+                        scale = (b_max - b_min) / 255.0 if b_max > b_min else 1.0
+                        zero_point = -b_min / scale - 128 if scale != 0 else -128
+                        quantized_bias = np.clip(np.round(bias_tensor / scale + zero_point), -128, 127).astype(np.int8)
+                    else:
+                        scale = (b_max - b_min) / 255.0 if b_max > b_min else 1.0
+                        zero_point = -b_min / scale if scale != 0 else 0
+                        quantized_bias = np.clip(np.round(bias_tensor / scale + zero_point), 0, 255).astype(np.uint8)
                     
                     # Save quantized bias and quantization parameters
                     with open(f"{self.model_binary_dir}/layer_{layer_idx}_bias.bin", "wb") as f:
@@ -295,11 +307,15 @@ class MatQuantPT_VGG(Implementation):
                     # MinMax quantization to 8 bits
                     w_min = weight_tensor.min()
                     w_max = weight_tensor.max()
-                    scale = (w_max - w_min) / 255.0 if w_max > w_min else 1.0
-                    zero_point = -w_min / scale if scale != 0 else 0
                     
-                    # Quantize weights
-                    quantized_weights = np.clip(np.round(weight_tensor / scale + zero_point), 0, 255).astype(np.uint8)
+                    if self.quantize_signed:
+                        scale = (w_max - w_min) / 255.0 if w_max > w_min else 1.0
+                        zero_point = -w_min / scale - 128 if scale != 0 else -128
+                        quantized_weights = np.clip(np.round(weight_tensor / scale + zero_point), -128, 127).astype(np.int8)
+                    else:
+                        scale = (w_max - w_min) / 255.0 if w_max > w_min else 1.0
+                        zero_point = -w_min / scale if scale != 0 else 0
+                        quantized_weights = np.clip(np.round(weight_tensor / scale + zero_point), 0, 255).astype(np.uint8)
                     
                     # Save quantized weights and quantization parameters
                     with open(f"{self.model_binary_dir}/layer_{layer_idx}_weight.bin", "wb") as f:
@@ -317,11 +333,15 @@ class MatQuantPT_VGG(Implementation):
                     # MinMax quantization to 8 bits
                     b_min = bias_tensor.min()
                     b_max = bias_tensor.max()
-                    scale = (b_max - b_min) / 255.0 if b_max > b_min else 1.0
-                    zero_point = -b_min / scale if scale != 0 else 0
                     
-                    # Quantize bias
-                    quantized_bias = np.clip(np.round(bias_tensor / scale + zero_point), 0, 255).astype(np.uint8)
+                    if self.quantize_signed:
+                        scale = (b_max - b_min) / 255.0 if b_max > b_min else 1.0
+                        zero_point = -b_min / scale - 128 if scale != 0 else -128
+                        quantized_bias = np.clip(np.round(bias_tensor / scale + zero_point), -128, 127).astype(np.int8)
+                    else:
+                        scale = (b_max - b_min) / 255.0 if b_max > b_min else 1.0
+                        zero_point = -b_min / scale if scale != 0 else 0
+                        quantized_bias = np.clip(np.round(bias_tensor / scale + zero_point), 0, 255).astype(np.uint8)
                     
                     # Save quantized bias and quantization parameters
                     with open(f"{self.model_binary_dir}/layer_{layer_idx}_bias.bin", "wb") as f:
@@ -443,7 +463,9 @@ class MatQuantPT_VGG(Implementation):
 
         if not self.quantizable_layers:
             return "// No quantizable layers identified for binary loading"
-            
+        
+        int_type = "int8_t" if self.quantize_signed else "uint8_t"
+        
         code = []
         code.append("// Load binary files if not loaded")
         code.append("static bool files_loaded = false;")
@@ -462,12 +484,12 @@ class MatQuantPT_VGG(Implementation):
                 weight_size = out_channels * in_channels * kernel_h * kernel_w
                 
                 code.append(f"    // Load weights for layer {layer_idx} ({layer_type})")
-                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
+                code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
                 code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 
                 if layer_info.get('has_bias', True):
                     code.append(f"    // Load bias for layer {layer_idx}")
-                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_channels});")
+                    code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_channels});")
                     code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                 
             elif layer_type == 'linear':
@@ -476,12 +498,12 @@ class MatQuantPT_VGG(Implementation):
                 weight_size = out_features * in_features
                 
                 code.append(f"    // Load weights for layer {layer_idx} ({layer_type})")
-                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
+                code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
                 code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 
                 if layer_info.get('has_bias', True):
                     code.append(f"    // Load bias for layer {layer_idx}")
-                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_features});")
+                    code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_features});")
                     code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
             
             elif layer_type == 'batchnorm2d':
@@ -490,9 +512,9 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"    // Load BatchNorm2d parameters for layer {layer_idx}")
                 
                 if layer_info.get('affine', True):
-                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {num_features});")
+                    code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {num_features});")
                     code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
-                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {num_features});")
+                    code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {num_features});")
                     code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                 
                 # Load running statistics for inference
@@ -521,8 +543,8 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"    // Precompute dequantized weights for Layer {layer_idx}")
                 code.append(f"    layer_{layer_idx}_weights_dequant.resize({weight_size});")
                 code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
-                code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
-                code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        std::vector<{int_type}> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                code.append(f"        std::vector<{int_type}> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
                 code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
                 code.append("    }")
@@ -531,8 +553,8 @@ class MatQuantPT_VGG(Implementation):
                     code.append(f"    // Precompute dequantized biases for Layer {layer_idx}")
                     code.append(f"    layer_{layer_idx}_bias_dequant.resize({out_channels});")
                     code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
-                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
-                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<{int_type}> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
                     code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                     code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
                     code.append("    }")
@@ -545,8 +567,8 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"    // Precompute dequantized weights for Layer {layer_idx}")
                 code.append(f"    layer_{layer_idx}_weights_dequant.resize({weight_size});")
                 code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
-                code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
-                code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        std::vector<{int_type}> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                code.append(f"        std::vector<{int_type}> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
                 code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
                 code.append("    }")
@@ -555,8 +577,8 @@ class MatQuantPT_VGG(Implementation):
                     code.append(f"    // Precompute dequantized biases for Layer {layer_idx}")
                     code.append(f"    layer_{layer_idx}_bias_dequant.resize({out_features});")
                     code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
-                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
-                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<{int_type}> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
                     code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                     code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
                     code.append("    }")
@@ -568,17 +590,17 @@ class MatQuantPT_VGG(Implementation):
                     code.append(f"    // Precompute dequantized weights for BatchNorm Layer {layer_idx}")
                     code.append(f"    layer_{layer_idx}_weights_dequant.resize({num_features});")
                     code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
-                    code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
-                    code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<{int_type}> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                    code.append(f"        std::vector<{int_type}> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
                     code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                     code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
                     code.append("    }")
-                    
+                
                     code.append(f"    // Precompute dequantized biases for BatchNorm Layer {layer_idx}")
                     code.append(f"    layer_{layer_idx}_bias_dequant.resize({num_features});")
                     code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
-                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
-                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<{int_type}> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
                     code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                     code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
                     code.append("    }")
@@ -593,7 +615,9 @@ class MatQuantPT_VGG(Implementation):
         """Generate C++ code for quantization array declarations."""
         if not self.quantizable_layers:
             return "// No quantizable layers identified for declarations"
-            
+        
+        int_type = "int8_t" if self.quantize_signed else "uint8_t"
+        
         declarations = []
         declarations.append("// Declare quantization arrays for all required layers")
         
@@ -604,24 +628,24 @@ class MatQuantPT_VGG(Implementation):
             declarations.append(f"// {layer_type} layer {layer_idx}")
             
             if layer_type in ['conv', 'conv1d', 'linear']:
-                declarations.append(f"std::vector<uint8_t> layer_{layer_idx}_weight_q8;")
+                declarations.append(f"std::vector<{int_type}> layer_{layer_idx}_weight_q8;")
                 declarations.append(f"float layer_{layer_idx}_weight_scale = 1.0f;")
                 declarations.append(f"float layer_{layer_idx}_weight_zero_point = 0.0f;")
                 declarations.append(f"std::vector<float> layer_{layer_idx}_weights_dequant;")
                 
                 if layer_info.get('has_bias', True):
-                    declarations.append(f"std::vector<uint8_t> layer_{layer_idx}_bias_q8;")
+                    declarations.append(f"std::vector<{int_type}> layer_{layer_idx}_bias_q8;")
                     declarations.append(f"float layer_{layer_idx}_bias_scale = 1.0f;")
                     declarations.append(f"float layer_{layer_idx}_bias_zero_point = 0.0f;")
                     declarations.append(f"std::vector<float> layer_{layer_idx}_bias_dequant;")
                     
             elif layer_type == 'batchnorm2d':
                 if layer_info.get('affine', True):
-                    declarations.append(f"std::vector<uint8_t> layer_{layer_idx}_weight_q8;")
+                    declarations.append(f"std::vector<{int_type}> layer_{layer_idx}_weight_q8;")
                     declarations.append(f"float layer_{layer_idx}_weight_scale = 1.0f;")
                     declarations.append(f"float layer_{layer_idx}_weight_zero_point = 0.0f;")
                     declarations.append(f"std::vector<float> layer_{layer_idx}_weights_dequant;")
-                    declarations.append(f"std::vector<uint8_t> layer_{layer_idx}_bias_q8;")
+                    declarations.append(f"std::vector<{int_type}> layer_{layer_idx}_bias_q8;")
                     declarations.append(f"float layer_{layer_idx}_bias_scale = 1.0f;")
                     declarations.append(f"float layer_{layer_idx}_bias_zero_point = 0.0f;")
                     declarations.append(f"std::vector<float> layer_{layer_idx}_bias_dequant;")
@@ -643,7 +667,9 @@ class MatQuantPT_VGG(Implementation):
 
         if not self.quantizable_layers:
             return "// No quantizable layers identified for binary loading"
-            
+        
+        int_type = "int8_t" if self.quantize_signed else "uint8_t"
+        
         code = []
         code.append("// Load binary files if not loaded")
         code.append("static bool files_loaded = false;")
@@ -662,12 +688,12 @@ class MatQuantPT_VGG(Implementation):
                 weight_size = out_channels * in_channels * kernel_h * kernel_w
                 
                 code.append(f"    // Load weights for layer {layer_idx} ({layer_type})")
-                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
+                code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
                 code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 
                 if layer_info.get('has_bias', True):
                     code.append(f"    // Load bias for layer {layer_idx}")
-                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_channels});")
+                    code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_channels});")
                     code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                 
             elif layer_type == 'linear':
@@ -676,12 +702,12 @@ class MatQuantPT_VGG(Implementation):
                 weight_size = out_features * in_features
                 
                 code.append(f"    // Load weights for layer {layer_idx} ({layer_type})")
-                code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
+                code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {weight_size});")
                 code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 
                 if layer_info.get('has_bias', True):
                     code.append(f"    // Load bias for layer {layer_idx}")
-                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_features});")
+                    code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {out_features});")
                     code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
             
             elif layer_type == 'batchnorm2d':
@@ -690,9 +716,9 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"    // Load BatchNorm2d parameters for layer {layer_idx}")
                 
                 if layer_info.get('affine', True):
-                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {num_features});")
+                    code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_weight.bin\", layer_{layer_idx}_weight_q8, {num_features});")
                     code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_weight_qparams.bin\", layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
-                    code.append(f"    load_binary_data(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {num_features});")
+                    code.append(f"    load_binary_data<{int_type}>(\"{binary_dir_name}/layer_{layer_idx}_bias.bin\", layer_{layer_idx}_bias_q8, {num_features});")
                     code.append(f"    load_quantization_params(\"{binary_dir_name}/layer_{layer_idx}_bias_qparams.bin\", layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                 
                 # Load running statistics for inference
@@ -721,8 +747,8 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"    // Precompute dequantized weights for Layer {layer_idx}")
                 code.append(f"    layer_{layer_idx}_weights_dequant.resize({weight_size});")
                 code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
-                code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
-                code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        std::vector<{int_type}> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                code.append(f"        std::vector<{int_type}> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
                 code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
                 code.append("    }")
@@ -731,8 +757,8 @@ class MatQuantPT_VGG(Implementation):
                     code.append(f"    // Precompute dequantized biases for Layer {layer_idx}")
                     code.append(f"    layer_{layer_idx}_bias_dequant.resize({out_channels});")
                     code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
-                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
-                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<{int_type}> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
                     code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                     code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
                     code.append("    }")
@@ -745,8 +771,8 @@ class MatQuantPT_VGG(Implementation):
                 code.append(f"    // Precompute dequantized weights for Layer {layer_idx}")
                 code.append(f"    layer_{layer_idx}_weights_dequant.resize({weight_size});")
                 code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
-                code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
-                code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        std::vector<{int_type}> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                code.append(f"        std::vector<{int_type}> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
                 code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                 code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
                 code.append("    }")
@@ -755,8 +781,8 @@ class MatQuantPT_VGG(Implementation):
                     code.append(f"    // Precompute dequantized biases for Layer {layer_idx}")
                     code.append(f"    layer_{layer_idx}_bias_dequant.resize({out_features});")
                     code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
-                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
-                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<{int_type}> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
                     code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                     code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
                     code.append("    }")
@@ -768,17 +794,17 @@ class MatQuantPT_VGG(Implementation):
                     code.append(f"    // Precompute dequantized weights for BatchNorm Layer {layer_idx}")
                     code.append(f"    layer_{layer_idx}_weights_dequant.resize({num_features});")
                     code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
-                    code.append(f"        std::vector<uint8_t> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
-                    code.append(f"        std::vector<uint8_t> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<{int_type}> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                    code.append(f"        std::vector<{int_type}> sliced_weight = slice_bits(weight_q8, 8, LAYER_BITS[{layer_idx}]);")
                     code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
                     code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
                     code.append("    }")
-                    
+                
                     code.append(f"    // Precompute dequantized biases for BatchNorm Layer {layer_idx}")
                     code.append(f"    layer_{layer_idx}_bias_dequant.resize({num_features});")
                     code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
-                    code.append(f"        std::vector<uint8_t> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
-                    code.append(f"        std::vector<uint8_t> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
+                    code.append(f"        std::vector<{int_type}> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                    code.append(f"        std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, 8, LAYER_BITS[{layer_idx}]);")
                     code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
                     code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
                     code.append("    }")
@@ -1220,6 +1246,8 @@ class MatQuantPT_VGG(Implementation):
             # Estimate from the highest layer index in quantizable_layers
             total_layers = max(self.quantizable_layers) + 2 if self.quantizable_layers else 0
         
+        int_type = "int8_t" if self.quantize_signed else "uint8_t"
+        
         header = f"""
             #pragma once
             #include <vector>
@@ -1286,9 +1314,13 @@ class MatQuantPT_VGG(Implementation):
             }}
 
             // Function to perform bit slicing at runtime
-            inline std::vector<uint8_t> slice_bits(const std::vector<uint8_t>& quantized, int original_bits, int target_bits) {{
-                std::vector<uint8_t> sliced(quantized.size());
+            inline std::vector<{int_type}> slice_bits(const std::vector<{int_type}>& quantized, int original_bits, int target_bits) {{
+                std::vector<{int_type}> sliced(quantized.size());
                 int shift_bits = original_bits - target_bits;
+                
+                {"// Signed quantization" if self.quantize_signed else "// Unsigned quantization"}
+                {"int q_min = -(1 << (target_bits - 1));" if self.quantize_signed else "int q_min = 0;"}
+                {"int q_max = (1 << (target_bits - 1)) - 1;" if self.quantize_signed else "int q_max = (1 << target_bits) - 1;"}
                 
                 for (size_t i = 0; i < quantized.size(); ++i) {{
                     // Perform bit slicing with rounding
@@ -1299,7 +1331,7 @@ class MatQuantPT_VGG(Implementation):
                         sliced[i] = round_bit ? (floor_val + 1) : floor_val;
                         
                         // Clamp to ensure values are within the target bit-width range
-                        sliced[i] = std::min(sliced[i], static_cast<uint8_t>((1 << target_bits) - 1));
+                        sliced[i] = std::max(q_min, std::min(static_cast<int>(sliced[i]), q_max));
                         
                         // Scale back to original range
                         sliced[i] = sliced[i] << shift_bits;
@@ -1445,6 +1477,7 @@ class MatQuantPT_VGG(Implementation):
             constexpr int LAYER_BITS[NUM_LAYERS] = {{{self._generate_layer_bits_array()}}};
             #define TARGET_BITS {self.target_bits}
             #define STORAGE_BITS 8
+            #define QUANTIZE_SIGNED {1 if self.quantize_signed else 0}
 
             // CNN model parameters
             #define INPUT_HEIGHT {self.input_height}

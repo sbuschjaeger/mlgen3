@@ -88,6 +88,7 @@ config = {
         'loss_weights': {8: 0.4, 4: 0.8, 2: 0.8},
         'quantize_bias': True,
         'quantize_target': 'weights_and_activations', # 'weights_and_activations' or 'weights_only'
+        'quantize_signed': True, # Whether to use signed quantization (default: False for unsigned)
         'quantize_layers': [
             # Will be filled by layer_registry
         ]
@@ -364,6 +365,7 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707, de
     # Set quantization parameters
     simple_model.quantization_config = bit_width
     simple_model.mix_and_match_config = mix_config
+    simple_model.quantize_signed = config['quantization'].get('quantize_signed', False)
     
     implementation = MatQuantPT_VGG(
         simple_model, 
