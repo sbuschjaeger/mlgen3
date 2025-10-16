@@ -4,8 +4,8 @@ from .dataset_loader import get_dataset, DatasetConfig
 from .model_factory import ModelFactory, create_model
 from .layer_registry import LayerRegistry
 from .config_parser import load_config, get_training_config, get_quantization_config, create_default_config
-from .trainer import ModelTrainer
-from .evaluator import ModelEvaluator
+from ..trainers.mq_trainer import ModelTrainer
+from ..trainers.mq_evaluator import ModelEvaluator
 from .seed import set_seed, get_seed_from_config
 
 __all__ = [

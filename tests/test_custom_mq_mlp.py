@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from Datasets import get_dataset
-from matquant import MatQuant, MQ_ActivationQuantizer
+from mlgen3.implementations.matquant.matquant import MatQuant, MQ_ActivationQuantizer
 
 # Create output directories
 os.makedirs("models/matquant/mnist", exist_ok=True)
@@ -277,7 +277,7 @@ def extract_mlgen3_model(pytorch_model):
 def generate_uniform_model(bit_width, extracted_models, X_test, y_test):
     """Generate and deploy a uniform bit-width model"""
     print(f"\nGenerating C++ code for {bit_width}-bit uniform model...")
-    from mlgen3.implementations.neuralnet.cpp.matquant import MatQuant as MLGenMatQuant
+    from mlgen3.implementations.matquant.matquant_pt_mlp import MatQuantPT as MLGenMatQuant
     from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
     
     model = extracted_models[bit_width]
@@ -319,7 +319,7 @@ def generate_uniform_model(bit_width, extracted_models, X_test, y_test):
 def generate_mix_model(mix_config, mq_model, X_test, y_test):
     """Generate and deploy a mix-and-match model"""
     print(f"\nGenerating C++ code for mix-and-match model with config: {mix_config}")
-    from mlgen3.implementations.neuralnet.cpp.matquant import MatQuant as MLGenMatQuant
+    from mlgen3.implementations.matquant.matquant_pt_mlp import MatQuantPT as MLGenMatQuant
     from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
     
     mix_model = mq_model.mix_and_match(mix_config)

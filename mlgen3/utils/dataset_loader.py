@@ -4,12 +4,19 @@ import numpy as np
 import torch
 from dataclasses import dataclass
 from typing import Tuple, Optional
+import sys
+import os
 
 # Import from existing Datasets module
 try:
+    # Add tests directory to path
+    tests_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'tests')
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    
     from Datasets import get_dataset as _get_dataset_raw
-except ImportError:
-    print("Warning: Datasets module not found. Dataset loading may not work.")
+except ImportError as e:
+    print(f"Warning: Datasets module not found: {e}")
     _get_dataset_raw = None
 
 

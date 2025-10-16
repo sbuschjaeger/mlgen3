@@ -1,0 +1,53 @@
+quantization:
+  use_matquant: True
+  use_codistillation: False
+
+  use_qat: False
+  fx_mode: False
+
+  target_bits: [8, 4, 2]
+  loss_weights: {8: 0.4, 4: 0.4, 2: 1.0}
+  
+  quantize_bias: True
+  quantize_target: "weights_and_activations" # Options: "weights_only", "activations_only", "weights_and_activations"
+  
+  quantize_signed: True # Whether to use signed quantization (default: False for unsigned)
+
+  quantize_layers: ["all"]
+
+model:
+  name: mlp
+  dataset: mnist
+  input_size: 28
+  hidden_layers:
+    - size: 512
+    - size: 512
+  output_size: 10
+
+training:
+  model_dir: ./models/mlp/matquant
+  model_savename: q842_mq842_wab
+  dry_iterations: 0
+  optimizer: sgd
+  batch_size: 256
+  num_epochs: 1
+  learning_rate: 0.01
+  lr_scheduler: step
+  gamma: 0.1
+  step_size: 3
+  momentum: 0.9
+  weight_decay: 0.0001
+
+evaluation:
+  model_path: ./models/mlp/matquant/q842_mq842_wab.pt
+
+  test_samples: 100
+  batch_size: 128
+  num_iterations: 1
+
+  mix_and_match_configs:
+
+  - description: "Bit-Widths: [8, 4, 2]; Threshold: 2.0; injection rates: [0.0001, 0.001, 0.01, 0.1, 0.2, 0.5]"
+    config: {"model.0.weight": 8, "model.0.bias": 8, "model.3.weight": 4, 
+              "model.3.bias": 4, "model.6.weight": 2, "model.6.bias": 2}
+
