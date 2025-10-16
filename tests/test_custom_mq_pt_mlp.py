@@ -3,241 +3,107 @@ import sys
 # Add the parent directory to the Python path to find the mlgen3 module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import tempfile
-import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.optim.lr_scheduler import StepLR
-import torch.nn.functional as F
-from tqdm import tqdm
 import argparse
 
-from Datasets import get_dataset
-from matquant import MatQuant, MQ_ActivationQuantizer
-from mlgen3.utils.seed import set_seed, get_seed_from_config
+from matquant import MatQuant
+from mlgen3.utils import (
+    get_dataset, create_model, LayerRegistry,
+    load_config, ModelTrainer, ModelEvaluator,
+    set_seed, get_seed_from_config
+)
 
 # Create output directories
 os.makedirs("models/matquant/mnist_pt", exist_ok=True)
 os.makedirs("generated_code/matquant_pt_mnist", exist_ok=True)
 
-# Load MNIST dataset
-print("Loading MNIST dataset...")
-X_train, y_train, X_test, y_test = get_dataset("mnist")
-X_train = X_train.astype('float32') / 255.0
-X_test = X_test.astype('float32') / 255.0
-
-# Convert to PyTorch tensors
-train_x = torch.tensor(X_train, dtype=torch.float32)
-train_y = torch.tensor(y_train, dtype=torch.long)
-test_x = torch.tensor(X_test, dtype=torch.float32)
-test_y = torch.tensor(y_test, dtype=torch.long)
-
-# # Print dataset sizes
-# print(f"Training set size: {train_x.shape}")
-# print(f"Training labels size: {train_y.shape}")
-# print(f"Test set size: {test_x.shape}")
-# print(f"Test labels size: {test_y.shape}")
-
-# Define MLP model
-class MLP(nn.Module):
-    def __init__(self):
-        super(MLP, self).__init__()
-        self.model = nn.Sequential(
-            nn.Linear(784, 128),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
-            nn.Linear(64, 10)
+def load_test_config(config_path=None):
+    """Load configuration from YAML file or create default."""
+    if config_path and os.path.exists(config_path):
+        print(f"Loading configuration from {config_path}")
+        return load_config(config_path=config_path)
+    else:
+        print("Using default configuration")
+        from mlgen3.utils import create_default_config
+        return create_default_config(
+            model_name='mlp',
+            dataset_name='mnist',
+            target_bits=[8, 4, 2],
+            num_epochs=3,
+            batch_size=64
         )
-    
-    def forward(self, x):
-        return self.model(x)
 
-# Create MatQuant config
-config = {
-    'quantization': {
-        'use_matquant': True,
-        'use_codistillation': False,
-        'use_qat': False,
-        'fx_mode': False,
-        'target_bits': [8, 4, 2],
-        'loss_weights': {8: 0.4, 4: 0.4, 2: 0.2},
-        'quantize_bias': True,
-        'quantize_target': 'weights_and_activations', # 'weights_and_activations' or 'weights_only'
-        'quantize_signed': True, # Whether to use signed quantization (default: False for unsigned)
-        'quantize_layers': [
-            'model.0.weight',
-            'model.3.weight',
-            'model.6.weight'
-        ]
-    },
-    'training': {
-        'seed': 707  # Random seed for reproducibility
-    }
-}
+# Load config
+config = load_test_config('config_mlp_mq_842.yaml')
 
-# Create LayerRegistry class to register layers for MatQuant
-class LayerRegistry:
-    def __init__(self):
-        self.layer_paths = []
-    
-    def register_model(self, model):
-        """Register all quantizable layers in the model."""
-        for name, module in model.named_modules():
-            if isinstance(module, nn.Linear):
-                weight_name = f"{name}.weight"
-                if weight_name not in self.layer_paths:
-                    self.layer_paths.append(weight_name)
-        return self.layer_paths
+# Load dataset based on config
+dataset_name = config['model']['dataset']
+print(f"Loading {dataset_name} dataset...")
+X_train, y_train, X_test, y_test = get_dataset(dataset_name, as_tensors=True, flatten=True)  # Added flatten=True
 
 def train_model(args):
     
     # Create model
     print("\nCreating MLP model...")
-    model = MLP()
-
-    # Create and register layers
+    model = create_model(config)
+    
+    # Register layers
     layer_registry = LayerRegistry()
     all_layers = layer_registry.register_model(model)
-    print(f"Registered layers: {all_layers}")
-
-    # Initialize MatQuant wrapper
-    print("\nInitializing MatQuant wrapper...")
+    
+    # Use quantize_layers from config
+    quantize_layers = config['quantization'].get('quantize_layers', [])
+    
+    # Handle "all" keyword
+    if quantize_layers == ["all"] or quantize_layers == "all":
+        quantize_layers = all_layers
+        config['quantization']['quantize_layers'] = quantize_layers
+    elif not quantize_layers:
+        # Fallback to default
+        quantize_layers = [
+            'model.0.weight',
+            'model.0.bias',
+            'model.3.weight',
+            'model.3.bias',
+            'model.6.weight',
+            'model.6.bias'
+        ]
+        config['quantization']['quantize_layers'] = quantize_layers
+    
+    print(f"Quantizing layers: {quantize_layers}")
+    
+    # Initialize MatQuant
     mq_model = MatQuant(model, config)
     mq_model.set_quantized_layers(config['quantization']['quantize_layers'])
-
-    # Training parameters
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = StepLR(optimizer, step_size=5, gamma=0.5)
-    batch_size = 64
-    epochs = args.epochs
-
-    # Training loop
-    print(f"\nTraining MLP with MatQuant for {epochs} epochs...")
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        
-        for i in tqdm(range(0, len(X_train), batch_size), desc=f"Epoch {epoch+1}/{epochs}"):
-            inputs = train_x[i:i+batch_size]
-            targets = train_y[i:i+batch_size]
-            
-            optimizer.zero_grad()
-            
-            # Multi-precision forward pass
-            outputs = mq_model.multi_precision_forward(inputs)
-            
-            # Calculate weighted loss
-            loss, individual_losses = mq_model.matquant_loss(outputs, targets)
-            
-            loss.backward()
-            optimizer.step()
-            
-            running_loss += loss.item()
-        
-        scheduler.step()
-        
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/(len(X_train)/batch_size):.4f}")
-
-
-        # Evaluate forward_with_quant()
-        model.eval()
-        mq_model.eval()
-        with torch.no_grad():
-            # Test for each bit-width
-            accuracies = {}
-            for bits in config['quantization']['target_bits']:
-                correct = 0
-                total = 0
-                
-                for i in tqdm(range(0, len(X_test), batch_size), desc=f"(1)Testing {bits}-bit"):
-                    inputs = test_x[i:i+batch_size]
-                    targets = test_y[i:i+batch_size]
-                    
-                    outputs = mq_model.forward_with_quant(inputs, bits)
-                    _, predicted = torch.max(outputs, 1)
-                    
-                    total += targets.size(0)
-                    correct += (predicted == targets).sum().item()
-                    
-                accuracy = 100 * correct / total
-                accuracies[bits] = accuracy
-        
-        for bits, acc in accuracies.items():
-            print(f"(1)  {bits}-bit Accuracy: {acc:.2f}%")
-
-        print("")
-
-
-    # Save the trained model parameters
-    model_path = "models/matquant/mnist_pt/mq_pt_model.pt"
-    torch.save(model.state_dict(), model_path)
-    print(f"\nSaved MatQuant model to {model_path}")
     
-    return model, mq_model
+    # Train
+    trainer = ModelTrainer(model, mq_model, config)
+    return trainer.train(X_train, y_train, X_test, y_test, num_epochs=args.epochs)
 
 def extract_and_test_models(mq_model):
-    batch_size = 64
+    evaluator = ModelEvaluator(mq_model, config)
+    extracted_models = evaluator.extract_and_test_models(X_test, y_test)
     
-    # Extract models with different bit-widths
-    print("\nExtracting models with different bit-widths...")
-    extracted_models = {}
-    for bits in config['quantization']['target_bits']:
-        extracted_models[bits] = mq_model.extract_model(bits)
-
-    # Create mix-and-match model
-    mix_config = {
-        'model.0.weight': 8, 
-        'model.3.weight': 4, 
-        'model.6.weight': 2
-    }
-    mix_model = mq_model.mix_and_match(mix_config)
-
-    print("\n(2)Testing extracted and mix-and-match models...")
-    # Test extracted models
-    for bits, ext_model in extracted_models.items():
-        ext_model.eval()
-        with torch.no_grad():
-            correct = 0
-            total = 0
-            for i in range(0, len(X_test), batch_size):
-                inputs = test_x[i:i+batch_size]
-                targets = test_y[i:i+batch_size]
-                
-                outputs = ext_model(inputs)
-                _, predicted = torch.max(outputs, 1)
-                
-                total += targets.size(0)
-                correct += (predicted == targets).sum().item()
-                
-            accuracy = 100 * correct / total
-            print(f"(2)Extracted {bits}-bit model accuracy: {accuracy:.2f}%")
-
-    print("")
-
-    # Test mix-and-match model
-    mix_model.eval()
-    with torch.no_grad():
-        correct = 0
-        total = 0
-        for i in range(0, len(X_test), batch_size):
-            inputs = test_x[i:i+batch_size]
-            targets = test_y[i:i+batch_size]
-            
-            outputs = mix_model(inputs)
-            _, predicted = torch.max(outputs, 1)
-            
-            total += targets.size(0)
-            correct += (predicted == targets).sum().item()
-            
-        accuracy = 100 * correct / total
-        print(f"Mix-and-match model accuracy: {accuracy:.2f}%")
-
-    print("")
+    # Test mix-and-match from config or use default
+    eval_config = config.get('evaluation', {})
+    mix_configs = eval_config.get('mix_and_match_configs', [])
+    
+    if mix_configs:
+        # Use first mix config from YAML
+        mix_config = mix_configs[0]['config']
+    else:
+        # Fallback to default
+        mix_config = {
+            'model.0.weight': 8,
+            'model.0.bias': 8,
+            'model.3.weight': 4,
+            'model.3.bias': 4,
+            'model.6.weight': 2,
+            'model.6.bias': 2
+        }
+    
+    evaluator.test_mix_and_match(mix_config, X_test, y_test)
     
     return extracted_models, mix_config
 
@@ -295,12 +161,13 @@ def generate_uniform_model(bit_width, model_path=None, seed=707):
     print(f"\nGenerating C++ code for {bit_width}-bit uniform model with 8-bit storage and runtime slicing...")
     from mlgen3.implementations.neuralnet.cpp.matquant_pt import MatQuantPT
     from mlgen3.materializer.cpp.linuxstandalone import LinuxStandalone
-
+    
     # Load the saved model
     if not model_path:
-        model_path = "models/matquant/mnist_pt/mq_pt_model.pt"
+        model_path = config['evaluation']['model_path']
     
-    model = MLP()
+    # Create model and load state
+    model = create_model(config)
     model.load_state_dict(torch.load(model_path))
     
     # Create MatQuant wrapper for extraction
@@ -311,7 +178,7 @@ def generate_uniform_model(bit_width, model_path=None, seed=707):
     mlgen_model = extract_mlgen3_model(mq_model_8bit)
     mlgen_model.XTest = X_test
     mlgen_model.YTest = y_test
-
+    
     # Create binary directory for model parameters
     binary_dir = f"generated_code/matquant_pt_mnist/uniform_{bit_width}bit/mq_pt_model_binary"
     os.makedirs(binary_dir, exist_ok=True)
@@ -326,12 +193,15 @@ def generate_uniform_model(bit_width, model_path=None, seed=707):
     
     implementation.set_model_binary_dir(binary_dir)
     
+    eval_config = config.get('evaluation', {})
+    test_samples = eval_config.get('test_samples', 1000)
+
     # Create materializer
     materializer = LinuxStandalone(
         implementation, 
         measure_accuracy=True, 
         measure_time=True,
-        test_samples=1000,
+        test_samples=test_samples,
         filename=f"matquant_pt_{bit_width}bit",
         seed=seed
     )
@@ -344,8 +214,10 @@ def generate_uniform_model(bit_width, model_path=None, seed=707):
 
     materializer.materialize(output_path)
     print(f"Model materialized at: {output_path}")
+
     materializer.deploy()
     print(f"{bit_width}-bit model deployed successfully (using 8-bit storage with runtime slicing).")
+    
     results = materializer.run(verbose=True)
     print(f"{bit_width}-bit model results: {results}")
     
@@ -359,9 +231,10 @@ def generate_mix_model(mix_config, model_path=None, seed=707):
     
     # Load the saved model
     if not model_path:
-        model_path = "models/matquant/mnist_pt/mq_pt_model.pt"
+        model_path = config['evaluation']['model_path']
     
-    model = MLP()
+    # Create model and load state
+    model = create_model(config)
     model.load_state_dict(torch.load(model_path))
     
     # Create MatQuant wrapper for extraction
@@ -416,25 +289,33 @@ def generate_mix_model(mix_config, model_path=None, seed=707):
 
 # Parse command line arguments
 def parse_args():
-    parser = argparse.ArgumentParser(description='Generate MatQuant models with specified bit-widths using PyTorch binary loading')
+    parser = argparse.ArgumentParser(description='Train and deploy MatQuant MLP model on MNIST')
+    parser.add_argument('--config', type=str, default='config_mlp_mq_842.yaml', help='Path to config file')
     parser.add_argument('--train', action='store_true', help='Train the model')
-    parser.add_argument('--epochs', type=int, default=3, help='Number of training epochs (default: 3)')
+    parser.add_argument('--epochs', type=int, default=None, help='Number of training epochs (overrides config)')
     parser.add_argument('--generate', action='store_true', help='Generate C++ code')
-    parser.add_argument('--uniform', type=int, nargs='+', help='Uniform bit-width models to generate (e.g. 8 4 2)')
+    parser.add_argument('--uniform', type=int, nargs='+', default=None, help='Uniform bit-width models (overrides config)')
     parser.add_argument('--mix', action='store_true', help='Generate mix-and-match model')
-    parser.add_argument('--custom-mix', type=str, help='Custom mix-and-match configuration in format "layer1:bits,layer2:bits"')
-    parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility (overrides config)')
-    parser.add_argument('--inference-seed', type=int, default=707, help='Random seed for C++ inference (default: 707)')
+    parser.add_argument('--seed', type=int, default=None, help='Random seed (overrides config)')
+    parser.add_argument('--inference-seed', type=int, default=707, help='Inference seed')
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
-
-    # Set random seed for reproducibility
+    
+    # Reload config if different path specified
+    if args.config != 'config_mlp_mq_842.yaml':
+        config = load_test_config(args.config)
+        dataset_name = config['model']['dataset']
+        X_train, y_train, X_test, y_test = get_dataset(dataset_name, as_tensors=True, flatten=True)  # Added flatten=True
+    
     seed = get_seed_from_config(config)
     if args.seed is not None:
         seed = args.seed
     set_seed(seed)
+    
+    if args.epochs is not None:
+        config['training']['num_epochs'] = args.epochs
     
     if args.train:
         model, mq_model = train_model(args)
@@ -443,34 +324,34 @@ if __name__ == "__main__":
     if args.generate:
         results = {}
         inference_seed = args.inference_seed
-
+        
+        # Use bit-widths from args or config
+        target_bits = args.uniform if args.uniform else config['quantization']['target_bits']
+        
         # Generate uniform bit-width models
-        if args.uniform:
-            for bit_width in args.uniform:
-                results[f"uniform_{bit_width}bit"] = generate_uniform_model(bit_width, seed=inference_seed)
-        else:
-            results["uniform_8bit"] = generate_uniform_model(8, seed=inference_seed)
-
-        # Generate default mix-and-match model
+        for bit_width in target_bits:
+            results[f"uniform_{bit_width}bit"] = generate_uniform_model(bit_width, seed=inference_seed)
+        
+        # Generate mix-and-match model
         if args.mix:
-            default_mix = {
-                'model.0.weight': 8, 
-                'model.3.weight': 4, 
-                'model.6.weight': 2
-            }
-            results["default_mix"] = generate_mix_model(default_mix, seed=inference_seed)
+            eval_config = config.get('evaluation', {})
+            mix_configs = eval_config.get('mix_and_match_configs', [])
+            
+            if mix_configs:
+                default_mix = mix_configs[0]['config']
+            else:
+                default_mix = {
+                    'model.0.weight': 8,
+                    'model.0.bias': 8,
+                    'model.3.weight': 4,
+                    'model.3.bias': 4,
+                    'model.6.weight': 2,
+                    'model.6.bias': 2
+                }
+            
+            results["mix_and_match"] = generate_mix_model(default_mix, seed=inference_seed)
+        
+        print("\nGeneration complete. Results summary:")
+        for model_name, res in results.items():
+            print(f"{model_name}: {res}")
 
-        # Generate custom mix-and-match model
-        if args.custom_mix:
-            try:
-                custom_mix = {}
-                for pair in args.custom_mix.split(','):
-                    layer, bits = pair.split(':')
-                    custom_mix[layer] = int(bits)
-                results["custom_mix"] = generate_mix_model(custom_mix, seed=inference_seed)
-            except Exception as e:
-                print(f"Error parsing custom mix-and-match configuration: {e}")
-                print("Format should be: 'model.0.weight:8,model.3.weight:4,model.6.weight:2'")
-
-        print("\nMatQuant PyTorch implementation complete!")
-        print(f"Generated models: {list(results.keys())}")

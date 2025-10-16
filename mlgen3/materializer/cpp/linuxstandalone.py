@@ -203,6 +203,14 @@ class LinuxStandalone(Materializer):
         else:
             XTest = self.implementation.model.XTest
         
+        # Convert PyTorch tensors to NumPy arrays if needed
+        if hasattr(XTest, 'numpy'):
+            # It's a PyTorch tensor
+            XTest = XTest.cpu().numpy()
+        elif hasattr(XTest, 'detach'):
+            # It's a PyTorch tensor with gradients
+            XTest = XTest.detach().cpu().numpy()
+        
         # Check if we have a multi-dimensional input (like images) and flatten it
         if len(XTest.shape) > 2:
             print(f"Flattening input data from shape {XTest.shape}")
@@ -211,6 +219,12 @@ class LinuxStandalone(Materializer):
             print(f"New shape: {XTest.shape}")
             
         YTest = self.implementation.model.YTest
+        
+        # Convert YTest to NumPy if it's a tensor
+        if hasattr(YTest, 'numpy'):
+            YTest = YTest.cpu().numpy()
+        elif hasattr(YTest, 'detach'):
+            YTest = YTest.detach().cpu().numpy()
 
         # Create CSV file with a subset of random samples
         XTest = XTest.astype(np.float32)

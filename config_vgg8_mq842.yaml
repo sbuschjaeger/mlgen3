@@ -13,11 +13,12 @@ quantization:
   
   quantize_signed: False # Whether to use signed quantization (default: False for unsigned)
        
+  quantize_layers: ["all"]
+
   # ## for evaluating multiple (also untrained) bit-widths
   # target_bits: [8, 7, 6, 5, 4, 3, 2, 1]
   # loss_weights: {8: 0.4, 7: 0.0, 6: 0.0, 5: 0.0, 4: 0.8, 3: 0.0, 2: 0.8, 1: 0.0}
 
-  
   # # Use --list-layers to get id and path of layers
   # # Index-based selection (less robust)
   # quantize_layers: [0, 1, 2, 3, 4, 5, 6, 7]
@@ -26,16 +27,16 @@ quantization:
 
   # # Note that only a single model. prefix needs to be specified (--list-layers will show the full path)
   # # Path-based selection (more robust)
-  quantize_layers:
-    - "model.0.weight"
-    - "model.4.weight"
-    - "model.8.weight"
-    - "model.12.weight"
-    - "model.17.weight"
-    - "model.19.weight"
+  # quantize_layers:
+  #   - "model.0.weight"
+  #   - "model.4.weight"
+  #   - "model.8.weight"
+  #   - "model.12.weight"
+  #   - "model.17.weight"
+  #   - "model.19.weight"
 
 model:
-  name: vgg
+  name: vgg8
   dataset: cifar10
   num_channels: 3
   num_blocks: 3  # Number of VGG blocks (Conv+Max+Act and/or Conv+Act)
@@ -63,6 +64,11 @@ training:
 
 evaluation:
   model_path: ./models/vgg/cifar10/matquant/q842_mq842_wab.pt
-  # model_path: ./models/vgg/cifar10/matquant/checkpoint_avg_79.94_b8_80.53_b4_80.89_b2_78.41.pt
+  
+  test_samples: 100
   batch_size: 128
   num_iterations: 1
+
+  mix_and_match_configs:
+    - description: "Bit-Widths: [8, 4, 2]; Threshold: 2.0; injection rates: [0.0001, 0.001, 0.01, 0.1, 0.2, 0.5]"
+      config: {"model.0.weight": 8, "model.0.bias": 8, "model.4.weight": 4, "model.4.bias": 4, "model.7.weight": 8, "model.7.bias": 8, "model.11.weight": 4, "model.11.bias": 4, "model.14.weight": 2, "model.14.bias": 2, "model.18.weight": 2, "model.18.bias": 2, "model.22.weight": 8, "model.22.bias": 8, "model.24.weight": 8, "model.24.bias": 8}
