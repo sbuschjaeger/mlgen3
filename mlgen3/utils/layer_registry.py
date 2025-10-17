@@ -1,7 +1,7 @@
 """Layer registry for identifying quantizable layers in models."""
 
 import torch.nn as nn
-from typing import List
+from typing import List, Optional
 
 
 class LayerRegistry:
@@ -11,23 +11,31 @@ class LayerRegistry:
         """Initialize the layer registry."""
         self.layer_paths = []
     
-    def register_model(self, model: nn.Module) -> List[str]:
+    def register_model(self, model: nn.Module, include_bias: bool = False) -> List[str]:
         """
         Register all quantizable layers in the model.
         
         Args:
             model: PyTorch model to register
+            include_bias: Whether to include bias parameters (default: False)
         
         Returns:
-            List of layer paths (e.g., 'model.0.weight')
+            List of layer paths (e.g., 'model.0.weight', 'model.0.bias')
         """
         self.layer_paths = []
         
         for name, module in model.named_modules():
             if isinstance(module, (nn.Linear, nn.Conv2d, nn.Conv1d)):
+                # Always register weight
                 weight_name = f"{name}.weight"
                 if weight_name not in self.layer_paths:
                     self.layer_paths.append(weight_name)
+                
+                # Register bias if requested and module has bias
+                if include_bias and hasattr(module, 'bias') and module.bias is not None:
+                    bias_name = f"{name}.bias"
+                    if bias_name not in self.layer_paths:
+                        self.layer_paths.append(bias_name)
         
         return self.layer_paths
     

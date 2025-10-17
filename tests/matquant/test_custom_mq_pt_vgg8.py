@@ -49,7 +49,8 @@ def train_model(args):
     
     # Register layers for MatQuant
     layer_registry = LayerRegistry()
-    all_layers = layer_registry.register_model(model)
+    quantize_bias = config['quantization'].get('quantize_bias', False)
+    all_layers = layer_registry.register_model(model, include_bias=quantize_bias)
     
     # Use quantize_layers from config
     # TODO add batchnorm layers
@@ -63,21 +64,13 @@ def train_model(args):
         # Fallback to default
         quantize_layers = [
             "model.0.weight",
-            "model.0.bias",
             "model.4.weight",
-            "model.4.bias",
             "model.7.weight",
-            "model.7.bias",
             "model.11.weight",
-            "model.11.bias",
             "model.14.weight",
-            "model.14.bias",
             "model.18.weight",
-            "model.18.bias",
             "model.22.weight",
-            "model.22.bias",
-            "model.24.weight",
-            "model.24.bias"
+            "model.24.weight"
         ]
         config['quantization']['quantize_layers'] = quantize_layers
     
@@ -106,21 +99,13 @@ def extract_and_test_models(mq_model):
         # Fallback to default
         mix_config = {
             'model.0.weight': 8,
-            'model.0.bias': 8,
             'model.4.weight': 4,
-            'model.4.bias': 4,
             'model.7.weight': 8,
-            'model.7.bias': 8,
             'model.11.weight': 4,
-            'model.11.bias': 4,
             'model.14.weight': 2,
-            'model.14.bias': 2,
             'model.18.weight': 2,
-            'model.18.bias': 2,
             'model.22.weight': 8,
-            'model.22.bias': 8,
-            'model.24.weight': 8,
-            'model.24.bias': 8
+            'model.24.weight': 8
         }
     
     evaluator.test_mix_and_match(mix_config, X_test, y_test)
@@ -295,21 +280,13 @@ if __name__ == "__main__":
             else:
                 default_mix = {
                     'model.0.weight': 8,
-                    'model.0.bias': 8,
                     'model.4.weight': 4,
-                    'model.4.bias': 4,
                     'model.7.weight': 8,
-                    'model.7.bias': 8,
                     'model.11.weight': 4,
-                    'model.11.bias': 4,
                     'model.14.weight': 2,
-                    'model.14.bias': 2,
                     'model.18.weight': 2,
-                    'model.18.bias': 2,
                     'model.22.weight': 8,
-                    'model.22.bias': 8,
-                    'model.24.weight': 8,
-                    'model.24.bias': 8
+                    'model.24.weight': 8
                 }
             
             results["mix_and_match"] = generate_cpp_model(8, default_mix, seed=inference_seed)

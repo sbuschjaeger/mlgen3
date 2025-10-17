@@ -11,25 +11,9 @@ quantization:
   quantize_bias: True
   quantize_target: "weights_and_activations"  # Options: "weights_only", "activations_only", "weights_and_activations"
   
-  quantize_signed: False # Whether to use signed quantization (default: False for unsigned)
+  quantize_signed: True # Whether to use signed quantization (default: False for unsigned)
         
   quantize_layers: ["all"]
-
-  ## for evaluating multiple (also untrained) bit-widths
-  # target_bits: [8, 7, 6, 5, 4, 3, 2, 1]
-  # loss_weights: {8: 0.4, 7: 0.0, 6: 0.0, 5: 0.0, 4: 0.8, 3: 0.0, 2: 0.8, 1: 0.0}
-
-  # # Use --list-layers to get id and path of layers
-  # # Index-based selection (less robust)
-  # quantize_layers: [0, 1, 2, 3]
-
-  # # Note that only a single model. prefix needs to be specified (--list-layers will show the full path)
-  # # Path-based selection (more robust)
-  # quantize_layers:
-  #   - "model.0.weight"
-  #   - "model.4.weight"
-  #   - "model.9.weight"
-  #   - "model.11.weight"
 
 model:
   name: vgg4
@@ -66,6 +50,10 @@ evaluation:
   num_iterations: 1
 
   mix_and_match_configs:
-    - description: "Bit-Widths: [8, 4, 2]; Threshold: 2.0; injection rates: [0.0001, 0.001, 0.01, 0.1, 0.2, 0.5]"
-      config: {"model.0.weight": 8, "model.0.bias": 8, "model.4.weight": 4, "model.4.bias": 4, "model.9.weight": 2, "model.9.bias": 2, "model.11.weight": 2, "model.11.bias": 2}
+    - description: "weights_only"
+      config: {"model.0.weight": 8, "model.4.weight": 4, "model.9.weight": 2, "model.11.weight": 2}
+
+    # - description: "weights_and_biases"
+    #   config: {"model.0.weight": 8, "model.0.bias": 8, "model.4.weight": 4, "model.4.bias": 4, "model.9.weight": 2, "model.9.bias": 2, "model.11.weight": 2, "model.11.bias": 2}
+
 

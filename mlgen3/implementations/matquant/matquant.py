@@ -256,20 +256,9 @@ class MatQuant(nn.Module):
 
         params = []
         for name, param in model.named_parameters():
-            # Add weight parameters if they match the layer paths
-            if 'weight' in name:
-                matching_paths = [path for path in self.layer_paths if name in path]
-                if matching_paths:
-                    params.append((name, param))
-            
-            # Add bias parameters if bias quantization is enabled
-            elif self.quantize_bias and 'bias' in name:
-                # Get the corresponding weight name to check if this bias should be quantized
-                weight_name = name.replace('bias', 'weight')
-                weight_matching_paths = [path for path in self.layer_paths if weight_name in path]
-                
-                if weight_matching_paths:
-                    params.append((name, param))
+            # Check if this parameter is in our quantization list
+            if name in self.layer_paths:
+                params.append((name, param))
             
         return params
 

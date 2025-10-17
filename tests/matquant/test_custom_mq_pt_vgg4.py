@@ -49,7 +49,8 @@ def train_model(args):
     
     # Register layers
     layer_registry = LayerRegistry()
-    all_layers = layer_registry.register_model(model)
+    quantize_bias = config['quantization'].get('quantize_bias', False)
+    all_layers = layer_registry.register_model(model, include_bias=quantize_bias)
     
     # Use quantize_layers from config
     # TODO add batchnorm layers
@@ -63,13 +64,9 @@ def train_model(args):
         # Fallback to default if not specified in config
         quantize_layers = [
             "model.0.weight",
-            "model.0.bias",
             "model.4.weight",
-            "model.4.bias",
             "model.9.weight",
-            "model.9.bias",
-            "model.11.weight",
-            "model.11.bias"
+            "model.11.weight"
         ]
         config['quantization']['quantize_layers'] = quantize_layers
     
@@ -98,13 +95,9 @@ def extract_and_test_models(mq_model):
         # Fallback to default
         mix_config = {
             'model.0.weight': 8,
-            'model.0.bias': 8,
             'model.4.weight': 4,
-            'model.4.bias': 4,
             'model.9.weight': 2,
-            'model.9.bias': 2,
-            'model.11.weight': 2,
-            'model.11.bias': 2
+            'model.11.weight': 2
         }
     
     evaluator.test_mix_and_match(mix_config, X_test, y_test)
@@ -284,13 +277,9 @@ if __name__ == "__main__":
             else:
                 default_mix = {
                     'model.0.weight': 8,
-                    'model.0.bias': 8,
                     'model.4.weight': 4,
-                    'model.4.bias': 4,
                     'model.9.weight': 2,
-                    'model.9.bias': 2,
-                    'model.11.weight': 2,
-                    'model.11.bias': 2
+                    'model.11.weight': 2
                 }
             
             results["mix_and_match"] = generate_cpp_model(
