@@ -45,15 +45,15 @@ training:
 evaluation:
   model_path: ./models/vgg/fashion/matquant/q842_mq842_wab.pt
   
-  test_samples: 1000
+  test_samples: 100
   batch_size: 128
   num_iterations: 1
 
   mix_and_match_configs:
-    - description: "weights_only"
-      config: {"model.0.weight": 8, "model.4.weight": 4, "model.9.weight": 2, "model.11.weight": 2}
+    # - description: "weights_only conv+lin"
+    #   config: {"model.0.weight": 8, "model.4.weight": 4, "model.9.weight": 2, "model.11.weight": 2}
 
-    # - description: "weights_and_biases"
-    #   config: {"model.0.weight": 8, "model.0.bias": 8, "model.4.weight": 4, "model.4.bias": 4, "model.9.weight": 2, "model.9.bias": 2, "model.11.weight": 2, "model.11.bias": 2}
+    - description: "weights_and_biases conv+lin"
+      config: {"model.0.weight": 8, "model.0.bias": 8, "model.4.weight": 4, "model.4.bias": 4, "model.9.weight": 2, "model.9.bias": 2, "model.11.weight": 2, "model.11.bias": 2}
 
 

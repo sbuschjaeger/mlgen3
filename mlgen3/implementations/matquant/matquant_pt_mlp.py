@@ -207,10 +207,14 @@ class MatQuantPT(Implementation):
                 alloc += f"static {int_type} layer_{lid}_weight_q8[{layer.output_shape}][{layer.input_shape}];\n"
                 alloc += f"static float layer_{lid}_weight_scale;\n"
                 alloc += f"static float layer_{lid}_weight_zero_point;\n"
+                # Add precomputed dequantized weights
+                alloc += f"static float layer_{lid}_weights_dequant[{layer.output_shape}][{layer.input_shape}];\n"
                 
                 alloc += f"static {int_type} layer_{lid}_bias_q8[{layer.output_shape}];\n"
                 alloc += f"static float layer_{lid}_bias_scale;\n"
                 alloc += f"static float layer_{lid}_bias_zero_point;\n"
+                # Add precomputed dequantized biases
+                alloc += f"static float layer_{lid}_bias_dequant[{layer.output_shape}];\n"
                 
             elif isinstance(layer, BatchNorm):
                 alloc += f"static float layer_{lid}[{layer.output_shape}];\n"
@@ -219,16 +223,20 @@ class MatQuantPT(Implementation):
                 alloc += f"static {int_type} layer_{lid}_scale_q8[{layer.output_shape}];\n"
                 alloc += f"static float layer_{lid}_scale_scale;\n"
                 alloc += f"static float layer_{lid}_scale_zero_point;\n"
+                # Add precomputed dequantized scale
+                alloc += f"static float layer_{lid}_scale_dequant[{layer.output_shape}];\n"
                 
                 alloc += f"static {int_type} layer_{lid}_bias_q8[{layer.output_shape}];\n"
                 alloc += f"static float layer_{lid}_bias_scale;\n"
                 alloc += f"static float layer_{lid}_bias_zero_point;\n"
+                # Add precomputed dequantized bias
+                alloc += f"static float layer_{lid}_bias_dequant[{layer.output_shape}];\n"
                 
             elif isinstance(layer, (Relu, Sigmoid, Sign, Step)):
                 alloc += f"static float layer_{lid}[{layer.output_shape}];\n"
                 
         return alloc
-        
+
     def _generate_binary_utils(self):
         """Generate C++ code for binary file loading utilities and bit slicing."""
         int_type = "int8_t" if self.quantize_signed else "uint8_t"
@@ -379,7 +387,7 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
         for lid, layer in enumerate(self.model.layers):
             if isinstance(layer, Linear):
                 load_func += f"""
-                    // Load weights and quantization parameters for Linear layer {lid}
+                    // Load and precompute weights for Linear layer {lid}
                     {{
                         // Load quantized weights
                         std::vector<{int_type}> layer_{lid}_weight_data;
@@ -392,28 +400,26 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
                                                                      layer_{lid}_weight_scale, 
                                                                      layer_{lid}_weight_zero_point);
                         
-                        // If weight loading failed, set default values
-                        if (!weight_success || !qparam_success) {{
-                            success = false;
-                            std::cerr << "Failed to load weights or parameters for layer {lid}" << std::endl;
-                            // Set default values
-                            layer_{lid}_weight_scale = 1.0f;
-                            layer_{lid}_weight_zero_point = 0.0f;
+                        if (weight_success && qparam_success) {{
+                            // Copy to 2D array and precompute dequantized values
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
                                 for (int j = 0; j < {layer.input_shape}; ++j) {{
-                                    layer_{lid}_weight_q8[i][j] = 0;
+                                    int idx = i * {layer.input_shape} + j;
+                                    layer_{lid}_weight_q8[i][j] = layer_{lid}_weight_data[idx];
+                                    
+                                    // Slice and dequantize immediately
+                                    std::vector<{int_type}> weight_q8(1, layer_{lid}_weight_q8[i][j]);
+                                    std::vector<{int_type}> sliced_weight = slice_bits(weight_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                    std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{lid}_weight_scale, layer_{lid}_weight_zero_point);
+                                    layer_{lid}_weights_dequant[i][j] = dequant_weight[0];
                                 }}
                             }}
                         }} else {{
-                            // Reshape flat vector into 2D array
-                            for (int i = 0; i < {layer.output_shape}; ++i) {{
-                                for (int j = 0; j < {layer.input_shape}; ++j) {{
-                                    layer_{lid}_weight_q8[i][j] = layer_{lid}_weight_data[i * {layer.input_shape} + j];
-                                }}
-                            }}
+                            success = false;
+                            std::cerr << "Failed to load weights for layer {lid}" << std::endl;
                         }}
                         
-                        // Load quantized bias and parameters
+                        // Load and precompute biases
                         std::vector<{int_type}> layer_{lid}_bias_data;
                         bool bias_success = load_binary_data<{int_type}>("mq_pt_model_binary/layer_{lid}_bias.bin", 
                                                                    layer_{lid}_bias_data, 
@@ -423,28 +429,26 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
                                                                          layer_{lid}_bias_scale, 
                                                                          layer_{lid}_bias_zero_point);
                         
-                        // If bias loading failed, set default values
-                        if (!bias_success || !bias_qparam_success) {{
-                            success = false;
-                            std::cerr << "Failed to load bias or parameters for layer {lid}" << std::endl;
-                            // Set default values
-                            layer_{lid}_bias_scale = 1.0f;
-                            layer_{lid}_bias_zero_point = 0.0f;
-                            for (int i = 0; i < {layer.output_shape}; ++i) {{
-                                layer_{lid}_bias_q8[i] = 0;
-                            }}
-                        }} else {{
-                            // Copy bias data
+                        if (bias_success && bias_qparam_success) {{
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
                                 layer_{lid}_bias_q8[i] = layer_{lid}_bias_data[i];
+                                
+                                // Slice and dequantize immediately
+                                std::vector<{int_type}> bias_q8(1, layer_{lid}_bias_q8[i]);
+                                std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{lid}_bias_scale, layer_{lid}_bias_zero_point);
+                                layer_{lid}_bias_dequant[i] = dequant_bias[0];
                             }}
+                        }} else {{
+                            success = false;
+                            std::cerr << "Failed to load bias for layer {lid}" << std::endl;
                         }}
                     }}"""
             elif isinstance(layer, BatchNorm):
                 load_func += f"""
-                    // Load scale and bias for BatchNorm layer {lid}
+                    // Load and precompute BatchNorm parameters for layer {lid}
                     {{
-                        // Load quantized scale and parameters
+                        // Load and precompute scale
                         std::vector<{int_type}> layer_{lid}_scale_data;
                         bool scale_success = load_binary_data<{int_type}>("mq_pt_model_binary/layer_{lid}_scale.bin", 
                                                                     layer_{lid}_scale_data, 
@@ -454,24 +458,21 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
                                                                          layer_{lid}_scale_scale, 
                                                                          layer_{lid}_scale_zero_point);
                         
-                        // If scale loading failed, set default values
-                        if (!scale_success || !scale_qparam_success) {{
-                            success = false;
-                            std::cerr << "Failed to load scale or parameters for BatchNorm layer {lid}" << std::endl;
-                            // Set default values
-                            layer_{lid}_scale_scale = 1.0f;
-                            layer_{lid}_scale_zero_point = 0.0f;
-                            for (int i = 0; i < {layer.output_shape}; ++i) {{
-                                layer_{lid}_scale_q8[i] = 0;
-                            }}
-                        }} else {{
-                            // Copy scale data
+                        if (scale_success && scale_qparam_success) {{
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
                                 layer_{lid}_scale_q8[i] = layer_{lid}_scale_data[i];
+                                
+                                // Slice and dequantize immediately
+                                std::vector<{int_type}> scale_q8(1, layer_{lid}_scale_q8[i]);
+                                std::vector<{int_type}> sliced_scale = slice_bits(scale_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                std::vector<float> dequant_scale = dequantize(sliced_scale, layer_{lid}_scale_scale, layer_{lid}_scale_zero_point);
+                                layer_{lid}_scale_dequant[i] = dequant_scale[0];
                             }}
+                        }} else {{
+                            success = false;
                         }}
                         
-                        // Load quantized bias and parameters
+                        // Load and precompute bias
                         std::vector<{int_type}> layer_{lid}_bias_data;
                         bool bias_success = load_binary_data<{int_type}>("mq_pt_model_binary/layer_{lid}_bn_bias.bin", 
                                                                    layer_{lid}_bias_data, 
@@ -481,28 +482,25 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
                                                                          layer_{lid}_bias_scale, 
                                                                          layer_{lid}_bias_zero_point);
                         
-                        // If bias loading failed, set default values
-                        if (!bias_success || !bias_qparam_success) {{
-                            success = false;
-                            std::cerr << "Failed to load bias or parameters for BatchNorm layer {lid}" << std::endl;
-                            // Set default values
-                            layer_{lid}_bias_scale = 1.0f;
-                            layer_{lid}_bias_zero_point = 0.0f;
-                            for (int i = 0; i < {layer.output_shape}; ++i) {{
-                                layer_{lid}_bias_q8[i] = 0;
-                            }}
-                        }} else {{
-                            // Copy bias data
+                        if (bias_success && bias_qparam_success) {{
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
                                 layer_{lid}_bias_q8[i] = layer_{lid}_bias_data[i];
+                                
+                                // Slice and dequantize immediately
+                                std::vector<{int_type}> bias_q8(1, layer_{lid}_bias_q8[i]);
+                                std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{lid}_bias_scale, layer_{lid}_bias_zero_point);
+                                layer_{lid}_bias_dequant[i] = dequant_bias[0];
                             }}
+                        }} else {{
+                            success = false;
                         }}
                     }}"""
         
         return load_func
     
     def _generate_predict_function(self):
-        """Generate the C++ prediction function with all layers and runtime bit slicing."""
+        """Generate the C++ prediction function with precomputed dequantized weights."""
         int_type = "int8_t" if self.quantize_signed else "uint8_t"
         
         code = """
@@ -512,7 +510,7 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
             if (!model_loaded) {
                 model_loaded = load_model_parameters();
                 if (!model_loaded) {
-                    std::cerr << "Warning: Failed to load some model parameters. Using default values." << std::endl;
+                    std::cerr << "Warning: Failed to load some model parameters." << std::endl;
                 }
             }
         """
@@ -523,58 +521,22 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
                 input_var = "x"
             else:
                 input_var = f"layer_{lid-1}"
-            
-            # Get the bit-width for this layer
-            if self.mix_and_match_config:
-                layer_name = f"model.{lid}.weight" if hasattr(layer, 'weight') else f"model.{lid}"
-                layer_bits = self.target_bits
-                if layer_name in self.mix_and_match_config:
-                    layer_bits = self.mix_and_match_config[layer_name]
-            else:
-                layer_bits = self.target_bits
                 
             if isinstance(layer, Linear):
                 code += f"""
-                // Linear layer {lid} with {layer_bits}-bit weights
-                // Slice the 8-bit weights to {layer_bits}-bit precision for this layer
+                // Linear layer {lid} using precomputed dequantized weights
                 for (int i = 0; i < {layer.output_shape}; ++i) {{
-                    // Process bias with bit-slicing
-                    std::vector<{int_type}> bias_q8(1);
-                    bias_q8[0] = layer_{lid}_bias_q8[i];
-                    std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, STORAGE_BITS, {layer_bits});
-                    
-                    // Dequantize the bias
-                    std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{lid}_bias_scale, layer_{lid}_bias_zero_point);
-                    layer_{lid}[i] = dequant_bias[0];
-                    
-                    // Process weights with bit-slicing and matrix multiplication
+                    layer_{lid}[i] = layer_{lid}_bias_dequant[i];
                     for (int j = 0; j < {layer.input_shape}; ++j) {{
-                        std::vector<{int_type}> weight_q8(1);
-                        weight_q8[0] = layer_{lid}_weight_q8[i][j];
-                        std::vector<{int_type}> sliced_weight = slice_bits(weight_q8, STORAGE_BITS, {layer_bits});
-                        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{lid}_weight_scale, layer_{lid}_weight_zero_point);
-                        layer_{lid}[i] += dequant_weight[0] * {input_var}[j];
+                        layer_{lid}[i] += layer_{lid}_weights_dequant[i][j] * {input_var}[j];
                     }}
                 }}
                 """
             elif isinstance(layer, BatchNorm):
                 code += f"""
-                // BatchNorm layer {lid}
+                // BatchNorm layer {lid} using precomputed dequantized parameters
                 for (int i = 0; i < {layer.output_shape}; ++i) {{
-                    // Slice and dequantize scale
-                    std::vector<{int_type}> scale_q8(1);
-                    scale_q8[0] = layer_{lid}_scale_q8[i];
-                    std::vector<{int_type}> sliced_scale = slice_bits(scale_q8, STORAGE_BITS, {layer_bits});
-                    std::vector<float> dequant_scale = dequantize(sliced_scale, layer_{lid}_scale_scale, layer_{lid}_scale_zero_point);
-                    
-                    // Slice and dequantize bias
-                    std::vector<{int_type}> bias_q8(1);
-                    bias_q8[0] = layer_{lid}_bias_q8[i];
-                    std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, STORAGE_BITS, {layer_bits});
-                    std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{lid}_bias_scale, layer_{lid}_bias_zero_point);
-                    
-                    // Apply BatchNorm
-                    layer_{lid}[i] = {input_var}[i] * dequant_scale[0] + dequant_bias[0];
+                    layer_{lid}[i] = {input_var}[i] * layer_{lid}_scale_dequant[i] + layer_{lid}_bias_dequant[i];
                 }}
                 """
             elif isinstance(layer, Relu):
@@ -606,24 +568,17 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
                 """
             elif isinstance(layer, Step):
                 if isinstance(layer.threshold, (list, np.ndarray)):
-                    if layer.threshold_is_high:
-                        comp = ">="
-                    else:
-                        comp = ">"
+                    comp = ">=" if layer.threshold_is_high else ">"
                     code += f"""
                     // Step activation layer {lid} with array threshold
                     for (int i = 0; i < {layer.output_shape}; ++i) {{
-                        // Since threshold is loaded at runtime, we use a fixed comparison for simplicity
                         layer_{lid}[i] = {input_var}[i] {comp} 0.0f ? {layer.high} : {layer.low};
                     }}
                     """
                 else:
-                    if layer.threshold_is_high:
-                        comp = ">="
-                    else:
-                        comp = ">"
+                    comp = ">=" if layer.threshold_is_high else ">"
                     code += f"""
-                    // Step activation layer {lid} with scalar threshold {layer.threshold}
+                    // Step activation layer {lid} with scalar threshold
                     for (int i = 0; i < {layer.output_shape}; ++i) {{
                         layer_{lid}[i] = {input_var}[i] {comp} {layer.threshold} ? {layer.high} : {layer.low};
                     }}

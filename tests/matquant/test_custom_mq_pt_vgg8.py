@@ -35,7 +35,7 @@ def load_test_config(config_path=None):
         )
 
 # Load config
-config = load_test_config('config_vgg8_mq842.yaml')
+config = load_test_config('tests/matquant/configs/config_vgg8_mq842.yaml')
 
 # Load dataset based on config
 dataset_name = config['model']['dataset']
@@ -53,14 +53,16 @@ def train_model(args):
     all_layers = layer_registry.register_model(model, include_bias=quantize_bias)
     
     # Use quantize_layers from config
-    # TODO add batchnorm layers
     quantize_layers = config['quantization'].get('quantize_layers', [])
+
     
     # Handle "all" keyword
     if quantize_layers == ["all"] or quantize_layers == "all":
+        print("Quantizing all layers.")
         quantize_layers = all_layers
         config['quantization']['quantize_layers'] = quantize_layers
     elif not quantize_layers:
+        print("No quantize_layers specified in config.")
         # Fallback to default
         quantize_layers = [
             "model.0.weight",

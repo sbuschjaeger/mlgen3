@@ -50,11 +50,13 @@ def train_model(args):
     # Register layers
     layer_registry = LayerRegistry()
     quantize_bias = config['quantization'].get('quantize_bias', False)
+    print(quantize_bias)
     all_layers = layer_registry.register_model(model, include_bias=quantize_bias)
     
     # Use quantize_layers from config
-    # TODO add batchnorm layers
     quantize_layers = config['quantization'].get('quantize_layers', [])
+
+    print(quantize_layers)
     
     # Handle "all" keyword
     if quantize_layers == ["all"] or quantize_layers == "all":

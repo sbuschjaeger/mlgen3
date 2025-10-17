@@ -49,6 +49,7 @@ def train_model(args):
     # Register layers
     layer_registry = LayerRegistry()
     quantize_bias = config['quantization'].get('quantize_bias', False)
+    print(quantize_bias)
     all_layers = layer_registry.register_model(model, include_bias=quantize_bias)
     
     # Use quantize_layers from config
