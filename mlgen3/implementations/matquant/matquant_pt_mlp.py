@@ -408,9 +408,14 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
                                     int idx = i * {layer.input_shape} + j;
                                     layer_{lid}_weight_q8[i][j] = layer_{lid}_weight_data[idx];
                                     
-                                    // Slice and dequantize immediately
+                                    // Slice and dequantize
                                     std::vector<{int_type}> weight_q8(1, layer_{lid}_weight_q8[i][j]);
-                                    std::vector<{int_type}> sliced_weight = slice_bits(weight_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                    std::vector<{int_type}> sliced_weight;
+                                    if (LAYER_BITS[{lid}] < STORAGE_BITS) {{
+                                        sliced_weight = slice_bits(weight_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                    }} else {{
+                                        sliced_weight = weight_q8;
+                                    }}
                                     std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{lid}_weight_scale, layer_{lid}_weight_zero_point);
                                     layer_{lid}_weights_dequant[i][j] = dequant_weight[0];
                                 }}
@@ -434,9 +439,14 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
                                 layer_{lid}_bias_q8[i] = layer_{lid}_bias_data[i];
                                 
-                                // Slice and dequantize immediately
+                                // Slice and dequantize
                                 std::vector<{int_type}> bias_q8(1, layer_{lid}_bias_q8[i]);
-                                std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                std::vector<{int_type}> sliced_bias;
+                                if (LAYER_BITS[{lid}] < STORAGE_BITS) {{
+                                    sliced_bias = slice_bits(bias_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                }} else {{
+                                    sliced_bias = bias_q8;
+                                }}
                                 std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{lid}_bias_scale, layer_{lid}_bias_zero_point);
                                 layer_{lid}_bias_dequant[i] = dequant_bias[0];
                             }}
@@ -463,9 +473,14 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
                                 layer_{lid}_scale_q8[i] = layer_{lid}_scale_data[i];
                                 
-                                // Slice and dequantize immediately
+                                // Slice and dequantize
                                 std::vector<{int_type}> scale_q8(1, layer_{lid}_scale_q8[i]);
-                                std::vector<{int_type}> sliced_scale = slice_bits(scale_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                std::vector<{int_type}> sliced_scale;
+                                if (LAYER_BITS[{lid}] < STORAGE_BITS) {{
+                                    sliced_scale = slice_bits(scale_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                }} else {{
+                                    sliced_scale = scale_q8;
+                                }}
                                 std::vector<float> dequant_scale = dequantize(sliced_scale, layer_{lid}_scale_scale, layer_{lid}_scale_zero_point);
                                 layer_{lid}_scale_dequant[i] = dequant_scale[0];
                             }}
@@ -487,9 +502,14 @@ std::vector<float> dequantize(const std::vector<T>& quantized, float scale, floa
                             for (int i = 0; i < {layer.output_shape}; ++i) {{
                                 layer_{lid}_bias_q8[i] = layer_{lid}_bias_data[i];
                                 
-                                // Slice and dequantize immediately
+                                // Slice and dequantize
                                 std::vector<{int_type}> bias_q8(1, layer_{lid}_bias_q8[i]);
-                                std::vector<{int_type}> sliced_bias = slice_bits(bias_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                std::vector<{int_type}> sliced_bias;
+                                if (LAYER_BITS[{lid}] < STORAGE_BITS) {{
+                                    sliced_bias = slice_bits(bias_q8, STORAGE_BITS, LAYER_BITS[{lid}]);
+                                }} else {{
+                                    sliced_bias = bias_q8;
+                                }}
                                 std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{lid}_bias_scale, layer_{lid}_bias_zero_point);
                                 layer_{lid}_bias_dequant[i] = dequant_bias[0];
                             }}
