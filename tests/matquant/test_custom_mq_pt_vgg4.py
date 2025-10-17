@@ -169,7 +169,6 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707, de
     # Set quantization parameters from config
     simple_model.quantization_config = bit_width
     simple_model.mix_and_match_config = mix_config
-    simple_model.quantize_signed = config['quantization'].get('quantize_signed', False)
     
     # Get input dimensions from config
     input_size = config['model']['input_size']
@@ -185,7 +184,8 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707, de
         input_height=input_size,
         input_width=input_size,
         input_channels=input_channels,
-        debug=debug
+        debug=debug,
+        quantize_signed=config['quantization'].get('quantize_signed', False)
     )
     
     implementation.set_model_binary_dir(binary_dir)

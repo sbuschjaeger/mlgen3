@@ -14,7 +14,7 @@ class MatQuantPT(Implementation):
     """
     
     def __init__(self, model, feature_type="float", label_type="float", internal_type="float", 
-                 target_bits=8, mix_and_match_config=None, align=None):
+                 target_bits=8, mix_and_match_config=None, align=None, quantize_signed=False):
         """
         Initialize MatQuant implementation.
         
@@ -26,6 +26,7 @@ class MatQuantPT(Implementation):
             target_bits: Target bit-width for quantization (default: 8)
             mix_and_match_config: Configuration for mix-and-match model (dict mapping layer names to bit-widths)
             align: Memory alignment for C++ arrays
+            quantize_signed: Whether to use signed quantization (default: False)
         """
         super().__init__(model, feature_type, label_type)
         self.internal_type = internal_type
@@ -35,7 +36,7 @@ class MatQuantPT(Implementation):
         self.max_bits = 8  # Max bits for MatQuant (fixed at 8)
         self.filename = None  # Will be set by the materializer
         self.model_binary_dir = None  # Will store the path to binary files
-        self.quantize_signed = getattr(model, 'quantize_signed', False)  # Get from model config
+        self.quantize_signed = quantize_signed  # Explicitly passed parameter
     
     def set_filename(self, filename):
         """Set the filename to use for header inclusion."""

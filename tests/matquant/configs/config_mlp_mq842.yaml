@@ -11,7 +11,7 @@ quantization:
   quantize_bias: True
   quantize_target: "weights_and_activations" # Options: "weights_only", "activations_only", "weights_and_activations"
   
-  quantize_signed: False # Whether to use signed quantization (default: False for unsigned)
+  quantize_signed: True # Whether to use signed quantization (default: False for unsigned)
 
   quantize_layers: ["all"]
 

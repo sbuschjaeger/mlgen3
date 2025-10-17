@@ -13,7 +13,7 @@ class MatQuantPT_VGG(Implementation):
     
     def __init__(self, model, feature_type="float", label_type="float", internal_type="float", 
                  target_bits=8, mix_and_match_config=None, align=None, 
-                 input_height=28, input_width=28, input_channels=1, debug=False):
+                 input_height=28, input_width=28, input_channels=1, debug=False, quantize_signed=False):
         """Initialize MatQuant PyTorch VGG implementation."""
         super().__init__(model, feature_type, label_type)
         self.internal_type = internal_type
@@ -26,7 +26,7 @@ class MatQuantPT_VGG(Implementation):
         self.input_width = input_width
         self.input_channels = input_channels
         self.debug = debug  # Add debug flag
-        self.quantize_signed = getattr(model, 'quantize_signed', False)  # Get from model config
+        self.quantize_signed = quantize_signed  # Explicitly passed parameter
         
         # Will be populated during model analysis
         self.layer_info = {}  # Store info about each layer

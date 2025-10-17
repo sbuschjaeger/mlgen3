@@ -182,7 +182,6 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707, de
     # Set quantization parameters
     simple_model.quantization_config = bit_width
     simple_model.mix_and_match_config = mix_config
-    simple_model.quantize_signed = config['quantization'].get('quantize_signed', False)
     
     implementation = MatQuantPT_VGG(
         simple_model, 
@@ -193,7 +192,8 @@ def generate_cpp_model(bit_width, mix_config=None, model_path=None, seed=707, de
         mix_and_match_config=mix_config,
         input_height=32,
         input_width=32,
-        input_channels=3
+        input_channels=3,
+        quantize_signed=config['quantization'].get('quantize_signed', False)
     )
     
     implementation.set_model_binary_dir(binary_dir)

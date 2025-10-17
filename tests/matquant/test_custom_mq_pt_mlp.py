@@ -182,7 +182,8 @@ def generate_uniform_model(bit_width, model_path=None, seed=707):
         feature_type="float", 
         label_type="float",
         internal_type="float",
-        target_bits=bit_width
+        target_bits=bit_width,
+        quantize_signed=config['quantization'].get('quantize_signed', False)
     )
     
     implementation.set_model_binary_dir(binary_dir)
@@ -252,7 +253,8 @@ def generate_mix_model(mix_config, model_path=None, seed=707):
         feature_type="float", 
         label_type="float",
         internal_type="float",
-        mix_and_match_config=mix_config
+        mix_and_match_config=mix_config,
+        quantize_signed=config['quantization'].get('quantize_signed', False)
     )
     
     implementation.set_model_binary_dir(binary_dir)
