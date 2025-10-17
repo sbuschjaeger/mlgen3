@@ -404,17 +404,22 @@ class MatQuantPT_VGG(Implementation):
         self.header = self._generate_header_code()
     
     def _generate_layer_allocations(self):
-
-        # print("\n=============generating layer allocations...===============")
         """Generate C++ code for layer allocations based on the model structure."""
         alloc_code = "// Layer allocations\n"
         
         if not self.layer_shapes:
             return alloc_code + "// No layer shapes available\n"
         
-        # Only allocate arrays for layers that actually need them
-        # We'll allocate for: Conv outputs, MaxPool outputs, BatchNorm outputs, ReLU outputs,
-        # Flatten output, and Linear outputs
+        # Find the flatten layer index to determine which layers need allocations
+        flatten_layer_idx = None
+        if hasattr(self.model, 'model') and isinstance(self.model.model, nn.Sequential):
+            layers = list(self.model.model)
+            for i, layer in enumerate(layers):
+                if isinstance(layer, nn.Flatten):
+                    flatten_layer_idx = i
+                    break
+        
+        # Only allocate arrays for layers that are actually used in calculations
         if hasattr(self.model, 'model') and isinstance(self.model.model, nn.Sequential):
             layers = list(self.model.model)
             
@@ -433,25 +438,22 @@ class MatQuantPT_VGG(Implementation):
                 else:
                     continue
                 
-                # Only allocate for specific layer types
-                if isinstance(layer, (nn.Conv2d, nn.MaxPool2d, nn.BatchNorm2d, nn.ReLU, nn.Flatten, nn.Linear)):
+                # Only allocate if:
+                # 1. It's a Flatten layer or later (these are used in calculations)
+                # 2. After flatten, we need Flatten, Linear, and ReLU layers (for the calculation chain)
+                should_allocate = False
+                
+                if flatten_layer_idx is not None:
+                    # After flatten, allocate for Flatten, Linear, and ReLU layers
+                    if i >= flatten_layer_idx and isinstance(layer, (nn.Flatten, nn.Linear, nn.ReLU)):
+                        should_allocate = True
+                else:
+                    # If no flatten layer found, allocate for Linear and ReLU layers
+                    if isinstance(layer, (nn.Linear, nn.ReLU)):
+                        should_allocate = True
+                
+                if should_allocate:
                     alloc_code += f"static float layer_{i}[{size}];\n"
-                else:
-                    # If we don't have shape info, just create a placeholder
-                    alloc_code += f"static float layer_{i}[1];  // Placeholder - shape unknown\n"
-        else:
-            # If we don't have layer shapes, make allocations based on quantizable layers
-            for layer_idx in self.quantizable_layers:
-                layer_info = self.layer_info.get(layer_idx, {})
-                if layer_info.get('type') == 'conv':
-                    out_channels = layer_info.get('out_channels', 64)
-                    alloc_code += f"static float layer_{layer_idx}[{out_channels}];\n"
-                elif layer_info.get('type') == 'linear':
-                    out_features = layer_info.get('out_features', 10)
-                    alloc_code += f"static float layer_{layer_idx}[{out_features}];\n"
-                else:
-                    # Default allocation if type unknown
-                    alloc_code += f"static float layer_{layer_idx}[64];\n"
         
         return alloc_code
     
@@ -606,34 +608,33 @@ class MatQuantPT_VGG(Implementation):
             elif layer_type == 'batchnorm2d':
                 num_features = layer_info.get('num_features', 64)
                 
-                if layer_info.get('affine', True):
-                    code.append(f"    // Precompute dequantized weights for BatchNorm Layer {layer_idx}")
-                    code.append(f"    layer_{layer_idx}_weights_dequant.resize({num_features});")
-                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
-                    code.append(f"        std::vector<{int_type}> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
-                    code.append(f"        std::vector<{int_type}> sliced_weight;")
-                    code.append(f"        if (LAYER_BITS[{layer_idx}] < STORAGE_BITS) {{")
-                    code.append(f"            sliced_weight = slice_bits(weight_q8, STORAGE_BITS, LAYER_BITS[{layer_idx}]);")
-                    code.append(f"        }} else {{")
-                    code.append(f"            sliced_weight = weight_q8;")
-                    code.append(f"        }}")
-                    code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
-                    code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
-                    code.append("    }")
+                code.append(f"    // Precompute dequantized weights for BatchNorm Layer {layer_idx}")
+                code.append(f"    layer_{layer_idx}_weights_dequant.resize({num_features});")
+                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
+                code.append(f"        std::vector<{int_type}> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                code.append(f"        std::vector<{int_type}> sliced_weight;")
+                code.append(f"        if (LAYER_BITS[{layer_idx}] < STORAGE_BITS) {{")
+                code.append(f"            sliced_weight = slice_bits(weight_q8, STORAGE_BITS, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        }} else {{")
+                code.append(f"            sliced_weight = weight_q8;")
+                code.append(f"        }}")
+                code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
+                code.append("    }")
                 
-                    code.append(f"    // Precompute dequantized biases for BatchNorm Layer {layer_idx}")
-                    code.append(f"    layer_{layer_idx}_bias_dequant.resize({num_features});")
-                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
-                    code.append(f"        std::vector<{int_type}> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
-                    code.append(f"        std::vector<{int_type}> sliced_bias;")
-                    code.append(f"        if (LAYER_BITS[{layer_idx}] < STORAGE_BITS) {{")
-                    code.append(f"            sliced_bias = slice_bits(bias_q8, STORAGE_BITS, LAYER_BITS[{layer_idx}]);")
-                    code.append(f"        }} else {{")
-                    code.append(f"            sliced_bias = bias_q8;")
-                    code.append(f"        }}")
-                    code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
-                    code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
-                    code.append("    }")
+                code.append(f"    // Precompute dequantized biases for BatchNorm Layer {layer_idx}")
+                code.append(f"    layer_{layer_idx}_bias_dequant.resize({num_features});")
+                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
+                code.append(f"        std::vector<{int_type}> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                code.append(f"        std::vector<{int_type}> sliced_bias;")
+                code.append(f"        if (LAYER_BITS[{layer_idx}] < STORAGE_BITS) {{")
+                code.append(f"            sliced_bias = slice_bits(bias_q8, STORAGE_BITS, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        }} else {{")
+                code.append(f"            sliced_bias = bias_q8;")
+                code.append(f"        }}")
+                code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
+                code.append("    }")
         
         code.append("    files_loaded = true;")
         code.append("    std::cout << \"Model parameters loaded successfully.\" << std::endl << std::endl;")
@@ -840,34 +841,33 @@ class MatQuantPT_VGG(Implementation):
             elif layer_type == 'batchnorm2d':
                 num_features = layer_info.get('num_features', 64)
                 
-                if layer_info.get('affine', True):
-                    code.append(f"    // Precompute dequantized weights for BatchNorm Layer {layer_idx}")
-                    code.append(f"    layer_{layer_idx}_weights_dequant.resize({num_features});")
-                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
-                    code.append(f"        std::vector<{int_type}> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
-                    code.append(f"        std::vector<{int_type}> sliced_weight;")
-                    code.append(f"        if (LAYER_BITS[{layer_idx}] < STORAGE_BITS) {{")
-                    code.append(f"            sliced_weight = slice_bits(weight_q8, STORAGE_BITS, LAYER_BITS[{layer_idx}]);")
-                    code.append(f"        }} else {{")
-                    code.append(f"            sliced_weight = weight_q8;")
-                    code.append(f"        }}")
-                    code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
-                    code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
-                    code.append("    }")
+                code.append(f"    // Precompute dequantized weights for BatchNorm Layer {layer_idx}")
+                code.append(f"    layer_{layer_idx}_weights_dequant.resize({num_features});")
+                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_weight_q8.size(); i++) {{")
+                code.append(f"        std::vector<{int_type}> weight_q8(1, layer_{layer_idx}_weight_q8[i]);")
+                code.append(f"        std::vector<{int_type}> sliced_weight;")
+                code.append(f"        if (LAYER_BITS[{layer_idx}] < STORAGE_BITS) {{")
+                code.append(f"            sliced_weight = slice_bits(weight_q8, STORAGE_BITS, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        }} else {{")
+                code.append(f"            sliced_weight = weight_q8;")
+                code.append(f"        }}")
+                code.append(f"        std::vector<float> dequant_weight = dequantize(sliced_weight, layer_{layer_idx}_weight_scale, layer_{layer_idx}_weight_zero_point);")
+                code.append(f"        layer_{layer_idx}_weights_dequant[i] = dequant_weight[0];")
+                code.append("    }")
                 
-                    code.append(f"    // Precompute dequantized biases for BatchNorm Layer {layer_idx}")
-                    code.append(f"    layer_{layer_idx}_bias_dequant.resize({num_features});")
-                    code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
-                    code.append(f"        std::vector<{int_type}> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
-                    code.append(f"        std::vector<{int_type}> sliced_bias;")
-                    code.append(f"        if (LAYER_BITS[{layer_idx}] < STORAGE_BITS) {{")
-                    code.append(f"            sliced_bias = slice_bits(bias_q8, STORAGE_BITS, LAYER_BITS[{layer_idx}]);")
-                    code.append(f"        }} else {{")
-                    code.append(f"            sliced_bias = bias_q8;")
-                    code.append(f"        }}")
-                    code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
-                    code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
-                    code.append("    }")
+                code.append(f"    // Precompute dequantized biases for BatchNorm Layer {layer_idx}")
+                code.append(f"    layer_{layer_idx}_bias_dequant.resize({num_features});")
+                code.append(f"    for (size_t i = 0; i < layer_{layer_idx}_bias_q8.size(); i++) {{")
+                code.append(f"        std::vector<{int_type}> bias_q8(1, layer_{layer_idx}_bias_q8[i]);")
+                code.append(f"        std::vector<{int_type}> sliced_bias;")
+                code.append(f"        if (LAYER_BITS[{layer_idx}] < STORAGE_BITS) {{")
+                code.append(f"            sliced_bias = slice_bits(bias_q8, STORAGE_BITS, LAYER_BITS[{layer_idx}]);")
+                code.append(f"        }} else {{")
+                code.append(f"            sliced_bias = bias_q8;")
+                code.append(f"        }}")
+                code.append(f"        std::vector<float> dequant_bias = dequantize(sliced_bias, layer_{layer_idx}_bias_scale, layer_{layer_idx}_bias_zero_point);")
+                code.append(f"        layer_{layer_idx}_bias_dequant[i] = dequant_bias[0];")
+                code.append("    }")
         
         code.append("    files_loaded = true;")
         code.append("    std::cout << \"Model parameters loaded successfully.\" << std::endl << std::endl;")
@@ -990,17 +990,6 @@ class MatQuantPT_VGG(Implementation):
                     implementations.append(f'cnn_utils::print_3d_tensor_stats(layer_{i}_3d, "Conv2d output");')
                     implementations.append("#endif")
                 
-                # Add flatten copy for Conv layers
-                implementations.append("")
-                implementations.append(f"// Copy to layer_{i} (flatten for later use)")
-                implementations.append(f"for (int c = 0; c < {out_channels}; c++) {{")
-                implementations.append(f"    for (int h = 0; h < {out_h}; h++) {{")
-                implementations.append(f"        for (int w = 0; w < {out_w}; w++) {{")
-                implementations.append(f"            layer_{i}[c * {out_h} * {out_w} + h * {out_w} + w] = layer_{i}_3d[c][h][w];")
-                implementations.append("        }")
-                implementations.append("    }")
-                implementations.append("}")
-                
                 # Update current format and shape
                 current_format = "3d"
                 current_shape = out_shape
@@ -1052,17 +1041,6 @@ class MatQuantPT_VGG(Implementation):
                     implementations.append(f'cnn_utils::print_3d_tensor_stats(layer_{i}_3d, "MaxPool2d output");')
                     implementations.append("#endif")
                 
-                # Add flatten copy for MaxPool layers
-                implementations.append("")
-                implementations.append(f"// Copy to layer_{i} (flatten for later use)")
-                implementations.append(f"for (int c = 0; c < {out_c}; c++) {{")
-                implementations.append(f"    for (int h = 0; h < {out_h}; h++) {{")
-                implementations.append(f"        for (int w = 0; w < {out_w}; w++) {{")
-                implementations.append(f"            layer_{i}[c * {out_h} * {out_w} + h * {out_w} + w] = layer_{i}_3d[c][h][w];")
-                implementations.append("        }")
-                implementations.append("    }")
-                implementations.append("}")
-                
                 # Update current format and shape
                 current_format = "3d"
                 current_shape = out_shape
@@ -1109,17 +1087,6 @@ class MatQuantPT_VGG(Implementation):
                         implementations.append(f'cnn_utils::print_3d_tensor_stats(layer_{i}_3d, "BatchNorm2d output");')
                         implementations.append("#endif")
                     
-                    # Add flatten copy for BatchNorm layers
-                    implementations.append("")
-                    implementations.append(f"// Copy to layer_{i}")
-                    implementations.append(f"for (int c = 0; c < {c}; c++) {{")
-                    implementations.append(f"    for (int h = 0; h < {h}; h++) {{")
-                    implementations.append(f"        for (int w = 0; w < {w}; w++) {{")
-                    implementations.append(f"            layer_{i}[c * {h} * {w} + h * {w} + w] = layer_{i}_3d[c][h][w];")
-                    implementations.append("        }")
-                    implementations.append("    }")
-                    implementations.append("}")
-                    
                     current_format = "3d"
                 else:
                     implementations.append(f"// Layer {i}: BatchNorm2d (skipped for non-3D tensor)")
@@ -1159,7 +1126,6 @@ class MatQuantPT_VGG(Implementation):
                     flattened_size = c * h * w
                     
                     implementations.append(f"// Flatten 3D tensor to 1D (size: {flattened_size})")
-                    implementations.append(f"std::vector<float> layer_{i}({flattened_size});")
                     implementations.append(f"int idx = 0;")
                     implementations.append(f"for (int c = 0; c < {c}; c++) {{")
                     implementations.append(f"    for (int h = 0; h < {h}; h++) {{")
