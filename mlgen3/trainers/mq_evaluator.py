@@ -125,10 +125,18 @@ class ModelEvaluator:
                 targets = test_y[i:i+batch_size].to(self.device)
                 
                 outputs = model(inputs)
+                
+                # Print logits for the first element
+                if i == 0:
+                    print(f"\nFirst element logits: {outputs[0].cpu().numpy()}")
+                
                 _, predicted = torch.max(outputs, 1)
                 
                 total += targets.size(0)
                 correct += (predicted == targets).sum().item()
+
+                if i==0:
+                    print(f"First element predicted: {predicted[0].item()}, target: {targets[0].item()}")
             
             accuracy = 100 * correct / total
         

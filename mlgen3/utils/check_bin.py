@@ -36,15 +36,26 @@ def parse_weight_file(data, print_stats=True, plot_hist=True, max_elements=20, i
     
     return weights
 
-def parse_qparams_file(data):
+def parse_qparams_file(data, param_name=""):
     """Parse quantization parameters file."""
-    # Assuming qparams files contain scale and zero_point as float32
+    # BatchNorm layers only have bias_scale (single float32)
+    # print(param_name)
+    if "bn" in param_name.lower():
+        if len(data) >= 4:
+            bias_scale = struct.unpack('f', data[0:4])[0]
+            print(f"Bias scale: {bias_scale}")
+            return {"bias_scale": bias_scale}
+        else:
+            print(f"Unexpected data length for BatchNorm: {len(data)}")
+            return None
+    
+    # Other layers have scale and zero_point
     if len(data) >= 8:
         scale = struct.unpack('f', data[0:4])[0]
         zero_point = struct.unpack('f', data[4:8])[0]
         print(f"Scale: {scale}")
         print(f"Zero point: {zero_point}")
-        return scale, zero_point
+        return {"scale": scale, "zero_point": zero_point}
     else:
         print(f"Unexpected data length: {len(data)}")
         return None
@@ -82,7 +93,11 @@ def analyze_bin_files(directory, is_signed=False):
             qparams_path = os.path.join(directory, files["qparams"])
             print(f"\nAnalyzing {files['qparams']}:")
             qparams_data = read_binary_file(qparams_path)
-            scale, zero_point = parse_qparams_file(qparams_data)
+            qparams = parse_qparams_file(qparams_data, qparams_path)
+
+            scale = qparams.get("scale") if qparams else None
+            zero_point = qparams.get("zero_point") if qparams else None
+            bias_scale = qparams.get("bias_scale") if qparams else None
             
             # If we have both data and qparams, show dequantized values
             if "data" in files and scale is not None:

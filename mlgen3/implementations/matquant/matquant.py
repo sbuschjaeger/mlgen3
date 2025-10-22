@@ -13,13 +13,14 @@ from copy import deepcopy
 
 class MQ_ActivationQuantizer(nn.Module):
     """Hook for quantizing activations in MatQuant."""
-    def __init__(self, bits, device=None, rounding=True):
+    def __init__(self, bits, device=None, rounding=True, quantize_signed=True):
         super(MQ_ActivationQuantizer, self).__init__()
         # Store as single value if only one bit-width
         self.bits = bits if isinstance(bits, int) else (bits[0] if len(bits) == 1 else bits)
         self.max_bits = self.bits if isinstance(self.bits, int) else max(self.bits)
         self.device = device if device else torch.device('cpu')
         self.rounding = rounding
+        self.quantize_signed = quantize_signed
     
     def forward(self, x):
         # # Only quantize in training mode
@@ -35,13 +36,22 @@ class MQ_ActivationQuantizer(nn.Module):
         # Avoid division by zero
         if x_min == x_max:
             return x
+        
+        if self.quantize_signed:
+            # Signed quantization: range is [-2^(max_bits-1), 2^(max_bits-1) - 1]
+            q_min = -(2**(self.max_bits-1))
+            q_max = 2**(self.max_bits-1) - 1
+        else:
+            # Unsigned quantization: range is [0, 2^max_bits - 1]
+            q_min = 0
+            q_max = 2**self.max_bits - 1
             
         # Quantize to max bits (which is self.bits for extracted models)
-        scaling_factor = (x_max - x_min) / (2**self.max_bits - 1)
-        zero_point = -x_min / scaling_factor if scaling_factor != 0 else 0
+        scaling_factor = (x_max - x_min) / (q_max - q_min)
+        zero_point = q_min - x_min / scaling_factor if scaling_factor != 0 else q_min
         
         # Apply MinMax quantization formula
-        quantized_x = torch.clamp(torch.round(x / scaling_factor + zero_point), 0, 2**self.max_bits - 1)
+        quantized_x = torch.clamp(torch.round(x / scaling_factor + zero_point), q_min, q_max)
         
         # For now, we only use the max bits version for activations
         # If MatQuant multi-bit activation is needed, we would slice and dequantize for each bit-width here
@@ -56,7 +66,7 @@ class MQ_ActivationQuantizer(nn.Module):
 class MatQuant(nn.Module):
     def __init__(self, model, config):
         """
-        Initialize Matryoshka Quantization.
+        Initialize Matryoshka Quantization with integer-only arithmetic simulation.
 
         Args:
             model (nn.Module): PyTorch model to quantize.
@@ -83,7 +93,7 @@ class MatQuant(nn.Module):
         self.loss_weights = {k: v for k, v in sorted(config['quantization']['loss_weights'].items(), reverse=True)}
         self.quantize_target = config['quantization'].get('quantize_target', 'weights_only')
         self.quantize_bias = config['quantization'].get('quantize_bias', False)
-        self.quantize_signed = config['quantization'].get('quantize_signed', False)
+        self.quantize_signed = config['quantization'].get('quantize_signed', True)
         
         # Assert loss_weights keys are in target_bits
         invalid_bits = [bit for bit in self.loss_weights.keys() if bit not in self.target_bits]
@@ -105,6 +115,10 @@ class MatQuant(nn.Module):
         self.layer_paths = None
         self.quantized_layers = None
         self.activation_hooks = []
+        
+        # Store per-layer quantization parameters (scale, zero_point)
+        self.weight_qparams = {}  # {layer_name: (scale, zero_point)}
+        self.activation_qparams = {}  # {layer_name: (scale, zero_point)}
 
     def reset_quantized_layers(self):
         """
@@ -187,10 +201,10 @@ class MatQuant(nn.Module):
                 # Find the layer
                 layer = get_layer_from_path(self.model, layer_path)
                 
-                # Only register hooks for layers that have activations (e.g., Conv2d, Linear)
-                if isinstance(layer, (nn.Conv2d, nn.Linear, nn.ReLU, nn.Hardtanh)):
-                    # Register the activation quantizer
-                    quantizer = MQ_ActivationQuantizer(self.target_bits, self.device)
+                # Only register hooks for layers that have activations (e.g., Conv2d, Linear, ReLU)
+                if isinstance(layer, (nn.Conv2d, nn.Linear, nn.ReLU, nn.Hardtanh, nn.BatchNorm2d, nn.BatchNorm1d)):
+                    # Register the activation quantizer with signed flag
+                    quantizer = MQ_ActivationQuantizer(self.target_bits, self.device, quantize_signed=self.quantize_signed)
                     hook = layer.register_forward_hook(lambda module, input_val, output: quantizer(output))
                     self.activation_hooks.append(hook)
             except (AttributeError, IndexError) as e:
@@ -265,21 +279,18 @@ class MatQuant(nn.Module):
     
     def quantize(self, w, c):
         """
-        Quantize a tensor to the specified bit-width using MinMaxQuantization.
-
+        Affine quantization: q = Z + round(r/S)
+        
         Args:
             w (torch.Tensor): Weight tensor to quantize.
             c (int): Number of bits to quantize to.
 
         Returns:
-            quantized_w (torch.Tensor): Quantized tensor in the original floating-point format.
-
-            scaling_factor (float): Scaling factor (alpha) used for quantization.
-            
-            zero_point (float): Zero point (z) used for quantization.
+            quantized_w (torch.Tensor): Integer quantized tensor.
+            scaling_factor (float): Scaling factor (S) used for quantization.
+            zero_point (float): Zero point (Z) used for quantization.
         """
-
-        # Determine scaling factor (alpha) based on min and max values (MinMax Quantization)
+        # Determine scaling factor (S) and zero point (Z) based on min and max values
         w_min = w.min()
         w_max = w.max()
         
@@ -287,20 +298,21 @@ class MatQuant(nn.Module):
             # Signed quantization: range is [-2^(c-1), 2^(c-1) - 1]
             q_min = -(2**(c-1))
             q_max = 2**(c-1) - 1
-            scaling_factor = (w_max - w_min) / (q_max - q_min)
-            zero_point = -w_min / scaling_factor + q_min if scaling_factor != 0 else q_min
         else:
             # Unsigned quantization: range is [0, 2^c - 1]
             q_min = 0
             q_max = 2**c - 1
-            scaling_factor = (w_max - w_min) / (q_max - q_min)
-            zero_point = -w_min / scaling_factor if scaling_factor != 0 else 0
-
-        # Quantize the weights
-        quantized_w = torch.clamp(torch.round(w / scaling_factor + zero_point), q_min, q_max)
-
-        # Dequantize separately, after slicing
-                
+        
+        # Compute scale: S = (max - min) / (q_max - q_min)
+        scaling_factor = (w_max - w_min) / (q_max - q_min)
+        scaling_factor = torch.max(scaling_factor, torch.tensor(1e-8, device=w.device))  # Avoid division by zero
+        
+        # Compute zero point: Z = q_min - min/S
+        zero_point = q_min - w_min / scaling_factor
+        
+        # Quantize: q = Z + round(w/S)
+        quantized_w = torch.clamp(torch.round(w / scaling_factor) + zero_point, q_min, q_max)
+        
         return quantized_w, scaling_factor, zero_point
     
     def straight_through_estimator(self, quantized_w, original_w):
@@ -392,22 +404,22 @@ class MatQuant(nn.Module):
     
     def dequantize(self, quantized_w, scaling_factor, zero_point):
         """
-        Dequantize an integer tensor back to floating point.
+        Dequantize: r = S * (q - Z)
 
         Args:
-            quantized_w (torch.Tensor): Quantized weights.
-            scaling_factor (float): Scaling factor (alpha) used for quantization.
-            zero_point (int): Zero point (z) used for quantization.
+            quantized_w (torch.Tensor): Quantized integer tensor.
+            scaling_factor (float): Scaling factor (S) used for quantization.
+            zero_point (float): Zero point (Z) used for quantization.
 
         Returns:
             Floating point tensor.
         """
-
-        return (quantized_w - zero_point) * scaling_factor
+        return scaling_factor * (quantized_w - zero_point)
     
     def forward_with_quant(self, x, target_bits=None, rounding=True):
         """
-        Forward pass with quantization at the specified target bit-width
+        Forward pass with integer-arithmetic simulation using affine quantization.
+        
         Args:
             x (torch.Tensor): Input tensor.
             target_bits (int): Bit-width to quantize to (if None, use max_train_bits).
@@ -415,7 +427,6 @@ class MatQuant(nn.Module):
         Returns:
             output (torch.Tensor): Model output.
         """
-
         if target_bits is None:
             target_bits = self.max_train_bits
         
@@ -429,9 +440,11 @@ class MatQuant(nn.Module):
                 # Save original weights
                 original_weights[name] = param.data.clone()
 
-                # Quantize to max_train_bits first
+                # Quantize to max_train_bits first (affine quantization)
                 quantized_w, scaling_factor, zero_point = self.quantize(param.data, self.max_train_bits)
-
+                
+                # Store quantization parameters for this layer
+                self.weight_qparams[name] = (scaling_factor.item(), zero_point.item())
 
                 # If we need a lower precision, slice the bits
                 if target_bits < self.max_train_bits:
@@ -441,7 +454,7 @@ class MatQuant(nn.Module):
                     dequantized_w = self.dequantize(quantized_w, scaling_factor, zero_point)
 
                 # Replace the weight with (de)quantized version using STE
-                param.data = self.straight_through_estimator(dequantized_w, param.data)
+                param.data = dequantized_w + (param.data - param.data).detach()
 
         # Note: Activation quantization is handled automatically through forward hooks
         # registered in _register_activation_hooks(). The hooks apply MQ_ActivationQuantizer
@@ -546,45 +559,14 @@ class MatQuant(nn.Module):
         """
         # Create a copy of the model
         extracted_model = deepcopy(self.model)
-
-        # # Print model information
-        # if target_bits == 8:
-        #     print(f"\n{'='*80}")
-
-        #     print(f"Original model type: {type(self.model).__name__}")
-        #     print(f"Extracted model type: {type(extracted_model).__name__}")
-        #     print(f"Quantization target: {self.quantize_target}")
-        #     print(f"Number of quantizable parameters: {len(self.get_quantizable_params(extracted_model))}")
-            
-        #     print(f"Model structure:")
-        #     for i, (name, module) in enumerate(extracted_model.named_modules()):
-        #         print(f"  {name}: {type(module).__name__}")
-        
-        #     print(f"{'='*80}\n")
-
-        #     for name, module in extracted_model.named_modules():
-        #         print(f"+++++++++ {name}: {type(module).__name__} +++++++++++++")
-
-        #         print("++++++++++++++++++++++++++++")
-
-        # print("")
         
         # Handle weight quantization if needed
         if self.quantize_target in ['weights_only', 'weights_and_activations']:
             # Quantize weights to max_train_bits first
             for name, param in self.get_quantizable_params(extracted_model):
-
                 with torch.no_grad():
-                    # Quantize to 8-bit
+                    # Quantize to max_train_bits (affine quantization)
                     quantized_w, scaling_factor, zero_point = self.quantize(param.data, self.max_train_bits)
-
-                    # if target_bits == 8:
-                    #     print(f"+++++++++{name}+++++++++++++")
-                    #     if 'weight' in name:
-                    #         print(f"Sample quantized weights: {quantized_w[0][:1]}")
-                    #     if 'bias' in name:
-                    #         print(f"Sample quantized bias: {quantized_w[:10]}")
-                    #     print("++++++++++++++++++++++++++++")
 
                     # Slice to target bits
                     if target_bits < self.max_train_bits:
@@ -592,14 +574,6 @@ class MatQuant(nn.Module):
                     
                     # Dequantize
                     param.data = self.dequantize(quantized_w, scaling_factor, zero_point)
-
-                    # if target_bits == 8:
-                    #     print(f"+++++++++{name}+++++++++++++")
-                    #     if 'weight' in name:
-                    #         print(f"Sample dequantized weights: {param.data[:1]}")
-                    #     if 'bias' in name:
-                    #         print(f"Sample dequantized bias: {param.data[:10]}")
-                    #     print("++++++++++++++++++++++++++++")
 
         return extracted_model
     
@@ -644,7 +618,7 @@ class MatQuant(nn.Module):
                 else:
                     bits = bit_config.get(name, self.max_train_bits)  # Default to max bits if not specified
                 
-                # Quantize to max_config_bits first
+                # Quantize to max_train_bits first (affine quantization)
                 quantized_w, sf, zp = self.quantize(param.data, self.max_train_bits)
                 
                 # Slice to target bits

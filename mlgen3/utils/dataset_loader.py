@@ -98,3 +98,58 @@ def get_dataset(
         y_test = torch.tensor(y_test, dtype=torch.long)
     
     return X_train, y_train, X_test, y_test
+
+
+def get_dataset_quantized(
+    dataset_name: str,
+    input_bits: int,
+    input_signed: bool = False,
+    flatten: bool = False
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Load and quantize dataset.
+    
+    Args:
+        dataset_name: Name of the dataset ('mnist', 'fashion', 'cifar10')
+        input_bits: Bit-width for quantization (e.g., 8, 4, 2)
+        input_signed: If True, use signed quantization
+        flatten: If True, flatten images to 1D (for MLP). If False, keep as 4D (for CNN)
+
+    Returns:
+        Tuple of (X_train, y_train, X_test, y_test)
+    """
+
+    X_train, y_train, X_test, y_test = get_dataset(
+        dataset_name,
+        as_tensors=True,
+        normalize=True,
+        flatten=flatten
+    )
+    print("\nQuantizing input data...")
+
+    # Print sample of full 28x28 image data
+    print("===before quantization===")
+
+    # print("\nSample of first training image (28x28):")
+    # print("Shape:", X_train[0].shape)
+    # for i in range(5, 6):
+    #     print(f"{X_train[0][i*28:(i+1)*28]}")
+
+    print("\nSample of first test image (28x28):")
+    print("Shape:", X_test[0].shape)
+    for i in range(7, 8):
+        print(f"{X_test[0][i*28:(i+1)*28]}")
+
+    # Quantize input data
+    def quantize_tensor(tensor: torch.Tensor) -> torch.Tensor:
+        scale = (2 ** input_bits - 1) / 1.0 #255.0 #TODO check range for other datasets
+        if input_signed:
+            tensor = tensor * scale - (2 ** (input_bits - 1))
+        else:
+            tensor = tensor * scale
+        return torch.clamp(tensor.round(), 0, 2 ** input_bits - 1)
+
+    X_train = quantize_tensor(X_train)
+    X_test = quantize_tensor(X_test)
+
+    return X_train, y_train, X_test, y_test
