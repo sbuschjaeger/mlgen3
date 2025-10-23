@@ -21,4 +21,5 @@ onnx2tflite/*
 
 note.txt
 cpp.cpp
-tmp.cpp
+tmp*.cpp
+tmp*.h

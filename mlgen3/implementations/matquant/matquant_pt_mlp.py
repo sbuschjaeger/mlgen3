@@ -74,23 +74,24 @@ class MatQuantPT(Implementation):
         if real_multiplier == 0.0:
             return 0, 0
         
-        # Find the exponent such that M = 2^(-n) × M_0 where M_0 ∈ [0.5, 1)
-        # This is equivalent to finding n such that 2^(n-1) ≤ 1/M < 2^n
-        exponent = int(np.ceil(np.log2(real_multiplier)))
-        shift = -exponent
+        # Find the exponent such that real_multiplier = 2^(-shift) * significand
+        # where significand is in [0.5, 1.0)
         
-        # Ensure M_0 is in [0.5, 1) by adjusting the shift
-        while real_multiplier < 0.5:
-            real_multiplier *= 2.0
+        shift = 0
+        significand = real_multiplier
+        
+        # Normalize to [0.5, 1.0) range
+        while significand < 0.5:
+            significand *= 2.0
             shift += 1
         
-        while real_multiplier >= 1.0:
-            real_multiplier /= 2.0
+        while significand >= 1.0:
+            significand /= 2.0
             shift -= 1
         
-        # Convert M_0 to a 32-bit fixed-point number with 31 fractional bits
-        # M_0 is in [0.5, 1), so M_0 × 2^31 is in [2^30, 2^31)
-        multiplier_int64 = int(round(real_multiplier * (1 << 31)))
+        # Convert significand to a 32-bit fixed-point number with 31 fractional bits
+        # significand is in [0.5, 1), so significand × 2^31 is in [2^30, 2^31)
+        multiplier_int64 = int(round(significand * (1 << 31)))
         
         # Handle the case where rounding pushes us to 2^31
         if multiplier_int64 == (1 << 31):
@@ -111,21 +112,25 @@ class MatQuantPT(Implementation):
         
         # For input layer quantization of normalized [0, 1] data to int8 range
         if self.quantize_signed:
-            # Map [0, 1] to [-128, 127]
-            input_scale = 1.0 / 255.0
+            # Map [0, 1] to [-128, 127] using affine quantization
+            # Use the full range: 0.0 -> -128, 1.0 -> 127
+
+            input_scale = 1.0 / 255.0  # (1.0 - 0.0) / (127 - (-128))
+            # input_scale = 1.0 / 127.0
             input_zero_point = -128.0
+            # input_zero_point = 0.0
         else:
             # Map [0, 1] to [0, 255]
             input_scale = 1.0 / 255.0
             input_zero_point = 0.0
-        
+    
         # Save input quantization parameters
         with open(os.path.join(self.model_binary_dir, "input_qparams.bin"), 'wb') as f:
             f.write(struct.pack('ff', input_scale, input_zero_point))
-        
+    
         prev_output_scale = input_scale
         prev_output_zero_point = input_zero_point
-        
+    
         for lid, layer in enumerate(self.model.layers):
             layer_params = {}
             
@@ -146,27 +151,44 @@ class MatQuantPT(Implementation):
                 layer_params['weight_zero_point'] = weight_qparams["zero_point"]
                 
                 # Quantize bias as int32
-                # Per the paper (Section 2.3), bias should be quantized with scale S_bias = S_input × S_weight
+                # Per the paper (Section 2.4): S_bias = S_input × S_weight, Z_bias = 0
                 bias = layer.bias.astype(np.float32)
                 bias_scale = prev_output_scale * weight_qparams["scale"]
                 
-                # Adjust bias to account for input zero point:
-                # The proper formula is: q_bias_adjusted = q_bias - Z_input * sum(q_weight[i])
-                # This accounts for the zero point offset in the input
-                bias_adjusted = bias.copy()
-                if prev_output_zero_point != 0:
-                    # For each output neuron, subtract the zero point times the sum of weights
-                    weight_sums = weight_8bit.sum(axis=1)  # Sum across input dimension
-                    bias_adjusted = bias - prev_output_zero_point * weight_sums * weight_qparams["scale"]
+                # Quantize bias to int32 using zero_point = 0
+                bias_quantized = np.round(bias / bias_scale).astype(np.int32)
                 
-                # Quantize the adjusted bias to int32 (using zero_point = 0 for bias as per the paper)
-                bias_int32 = np.round(bias_adjusted / bias_scale).astype(np.int32)
-                bias_int32.tofile(os.path.join(self.model_binary_dir, f"layer_{lid}_bias.bin"))
+                # Adjust bias to account for input zero point (Equation 7 in paper):
+                # The term with zero points: NZ1Z2 - Z1*a2(k) - Z2*a1(i)
+                # For bias, we need to subtract: Z_input * sum(q_weight[i])
+                # IMPORTANT: Only adjust if prev_output_zero_point is actually non-zero
+                if abs(prev_output_zero_point) > 1e-6:  # Use small epsilon to handle floating point comparison
+                    weight_sums = weight_8bit.sum(axis=1)  # Sum across input dimension
+                    bias_adjustment = np.round(prev_output_zero_point * weight_sums).astype(np.int32)
+                    bias_quantized = bias_quantized - bias_adjustment
+                    print(f"Layer {lid}: Adjusting bias by zero_point {prev_output_zero_point:.4f}, adjustment range: [{bias_adjustment.min()}, {bias_adjustment.max()}]")
+                
+                bias_quantized.tofile(os.path.join(self.model_binary_dir, f"layer_{lid}_bias.bin"))
                 
                 layer_params['bias_scale'] = bias_scale
                 
-                # Output has zero_point = 0 for all layers except input
-                output_scale = prev_output_scale
+                # For output scale: According to the paper, we should maintain the same scale
+                # throughout the network for intermediate layers. Only the final layer may
+                # need a different scale for the logits.
+                is_final_layer = (lid == len(self.model.layers) - 1) or \
+                                 (lid == len(self.model.layers) - 2 and isinstance(self.model.layers[-1], (Relu, Sigmoid, Sign, Step)))
+                
+                if is_final_layer:
+                    # For the final layer, use a scale that can represent the typical logit range
+                    # Logits typically range from -10 to 10 for classification tasks
+                    # Map this to int8 range: [-128, 127] represents approximately [-10, 10]
+                    output_scale = 20.0 / 255.0  # (10 - (-10)) / (127 - (-128))
+                else:
+                    # For intermediate layers, keep using the same scale as input
+                    # This is key to maintaining accuracy through the network
+                    output_scale = prev_output_scale
+                
+                # After linear layer, the output zero_point is 0 (no offset)
                 output_zero_point = 0.0
                 
                 layer_params['output_scale'] = output_scale
@@ -178,8 +200,8 @@ class MatQuantPT(Implementation):
                 )
                 layer_params['multiplier'] = multiplier
                 layer_params['shift'] = shift
-                
-                # Save requantization parameters (without zero_point since it's always 0 for output)
+
+                # Save requantization parameters
                 with open(os.path.join(self.model_binary_dir, f"layer_{lid}_requant_params.bin"), 'wb') as f:
                     f.write(struct.pack('ii', multiplier, shift))
                 
@@ -224,15 +246,18 @@ class MatQuantPT(Implementation):
                 with open(os.path.join(self.model_binary_dir, f"layer_{lid}_scale_qparams.bin"), 'wb') as f:
                     f.write(struct.pack('ff', scale_qparams["scale"], scale_qparams["zero_point"]))
                 
-                # Adjust bias to account for input zero point (though it should be 0 after Linear layer)
-                bias_adjusted = bn_bias.copy()
-                if prev_output_zero_point != 0:
-                    # Adjust for zero point: bias_adjusted = bias - Z_input * scale
-                    bias_adjusted = bn_bias - prev_output_zero_point * scale_8bit * scale_qparams["scale"]
-                
                 # Quantize bias with scale S_bias = S_input × S_scale
                 bias_scale = prev_output_scale * scale_qparams["scale"]
-                bias_int32 = np.round(bias_adjusted / bias_scale).astype(np.int32)
+                bias_int32 = np.round(bn_bias / bias_scale).astype(np.int32)
+                
+                # Adjust for input zero point
+                # Note: After Linear layer, zero_point should be 0, but check to be safe
+                if abs(prev_output_zero_point) > 1e-6:
+                    scale_sums = scale_8bit
+                    bias_adjustment = np.round(prev_output_zero_point * scale_sums).astype(np.int32)
+                    bias_int32 = bias_int32 - bias_adjustment
+                    print(f"Layer {lid} (BatchNorm): Adjusting bias by zero_point {prev_output_zero_point:.4f}, adjustment range: [{bias_adjustment.min()}, {bias_adjustment.max()}]")
+                
                 bias_int32.tofile(os.path.join(self.model_binary_dir, f"layer_{lid}_bn_bias.bin"))
                 
                 with open(os.path.join(self.model_binary_dir, f"layer_{lid}_bn_bias_qparams.bin"), 'wb') as f:
@@ -242,7 +267,7 @@ class MatQuantPT(Implementation):
                 layer_params['scale_zero_point'] = scale_qparams["zero_point"]
                 layer_params['bias_scale'] = bias_scale
                 layer_params['output_scale'] = prev_output_scale
-                layer_params['output_zero_point'] = 0.0  # Output always has zero_point = 0
+                layer_params['output_zero_point'] = 0.0
                 
                 # Compute requantization parameters
                 multiplier, shift = self._compute_requantization_params(
@@ -251,14 +276,15 @@ class MatQuantPT(Implementation):
                 layer_params['multiplier'] = multiplier
                 layer_params['shift'] = shift
                 
-                # Save requantization parameters (without zero_point since it's 0)
+                # Save requantization parameters
                 with open(os.path.join(self.model_binary_dir, f"layer_{lid}_requant_params.bin"), 'wb') as f:
                     f.write(struct.pack('ii', multiplier, shift))
                 
-                # Update for next layer
+                # BatchNorm output has zero_point = 0
                 prev_output_zero_point = 0.0
                 
             elif isinstance(layer, Relu):
+                # ReLU preserves the scale and zero_point
                 layer_params['output_scale'] = prev_output_scale
                 layer_params['output_zero_point'] = prev_output_zero_point
             
@@ -388,10 +414,12 @@ class MatQuantPT(Implementation):
                 # Only allocate output for activation layers
                 alloc += f"static int8_t layer_{lid}_output[{layer.output_shape}];\n"
         
-        # Add input quantization scale - use proper quantization for [0, 1] normalized data
+        # Add input quantization scale - use symmetric quantization for [0, 1] normalized data
         if self.quantize_signed:
-            alloc += "static float input_scale = 1.0f / 255.0f;  // Map [0, 1] to [-128, 127]\n"
-            alloc += "static float input_zero_point = -128.0f;\n"
+            # alloc += "static float input_scale = 1.0f / 127.0f;  // Map [0, 1] to [-127, 127]\n"
+            alloc += "static float input_scale = 1.0f / 255.0f;  // Map [0, 1] to [-127, 127]\n"
+            # alloc += "static float input_zero_point = 0.0f;  // Symmetric quantization\n"
+            alloc += "static float input_zero_point = -128.0f;  // Symmetric quantization\n"
         else:
             alloc += "static float input_scale = 1.0f / 255.0f;  // Map [0, 1] to [0, 255]\n"
             alloc += "static float input_zero_point = 0.0f;\n"
@@ -471,10 +499,12 @@ inline int32_t saturating_rounding_doubling_high_mul(int32_t a, int32_t b) {
     int64_t product = static_cast<int64_t>(a) * static_cast<int64_t>(b);
     
     // Nudge for rounding: add 2^30 to round to nearest when dividing by 2^31
-    int64_t nudge = product >= 0 ? (1ll << 30) : (1ll - (1ll << 30));
+    int64_t nudge = (product >= 0) ? (1ll << 30) : -(1ll << 30);
+    // int64_t nudge = product >= 0 ? (1ll << 30) : (1ll - (1ll << 30));
     
     // Divide by 2^31 with rounding
-    int64_t result = (product + nudge) / (1ll << 31);
+    int64_t result = (product + nudge) >> 31;
+    // int64_t result = (product + nudge) / (1ll << 31);
     
     // Saturate to int32 range
     if (result > INT32_MAX) {
@@ -487,11 +517,12 @@ inline int32_t saturating_rounding_doubling_high_mul(int32_t a, int32_t b) {
 
 // Rounding divide by power of two
 // Implements right shift with rounding to nearest
+// Modified to handle both positive and negative exponents
 inline int32_t rounding_divide_by_pot(int32_t x, int exponent) {
     if (exponent == 0) {
         return x;
     }
-    
+
     int32_t mask = (1 << exponent) - 1;
     int32_t remainder = x & mask;
     int32_t threshold = (mask >> 1) + (x < 0 ? 1 : 0);
@@ -506,9 +537,14 @@ inline int8_t requantize_int32_to_int8(int32_t value, int32_t multiplier, int sh
     int32_t result = saturating_rounding_doubling_high_mul(value, multiplier);
     
     // Apply the right shift with rounding
-    result = rounding_divide_by_pot(result, shift);
+    // For negative shifts (multiply instead of divide), we need to left shift
+    if (shift < 0) {
+        result = result * (1 << (-shift));
+    } else {
+        result = rounding_divide_by_pot(result, shift);
+    }
     
-    // Saturate to int8 range
+    // Clamp to int8_t range
     if (result > INT8_MAX) {
         return INT8_MAX;
     } else if (result < INT8_MIN) {
@@ -683,7 +719,7 @@ inline float dequantize_int8_to_float(int8_t value, float scale, float zero_poin
                     // Multiply by scale (both int8)
                     int32_t acc = static_cast<int32_t>({prev_output}[i]) * 
                                   static_cast<int32_t>(layer_{lid}_scale[i]);
-                    
+
                     // Add bias (int32)
                     acc += layer_{lid}_bn_bias[i];
                     
@@ -716,15 +752,26 @@ inline float dequantize_int8_to_float(int8_t value, float scale, float zero_poin
                 last_linear_idx = i
                 break
         
+        # Get the output scale for the final layer from layer_qparams
+        # We need to save this during code generation
+        final_output_scale = self.layer_qparams[last_linear_idx]['output_scale']
+        
         code += f"""
+            // // Dequantize output to float using the final layer's output scale
+            // std::vector<float> output({final_output_size});
+            // for (int i = 0; i < {final_output_size}; ++i) {{
+            //     // Use output scale instead of weight scale for dequantization
+            //     output[i] = static_cast<float>({prev_output}[i]) * {final_output_scale}f;
+            // }}
+
             // Dequantize output to float (zero_point is 0 for output)
-            std::vector<float> output({final_output_size});
-            for (int i = 0; i < {final_output_size}; ++i) {{
+            std::vector<float> output(10);
+            for (int i = 0; i < 10; ++i) {{
                 output[i] = dequantize_int8_to_float({prev_output}[i], 
-                                                     layer_{last_linear_idx}_weight_scale,
-                                                     0.0f);
+                                                     {final_output_scale},
+                                                     input_zero_point);
             }}
-            
+
             return output;
         }}
         """
