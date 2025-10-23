@@ -20,5 +20,7 @@ onnx2tflite/*
 .github/copilot-instructions.md
 
 note.txt
+integer-arithmetic-only-paper.txt
 cpp.cpp
-tmp.cpp
+tmp*.cpp
+tmp*.h
