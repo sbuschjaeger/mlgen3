@@ -63,6 +63,13 @@ def check_config(config):
             if not isinstance(quantization['quantize_bias'], bool):
                 raise ValueError("'quantize_bias' must be a boolean value.")
         
+        # Add use_bias parameter (defaults to True unless specified)
+        if 'use_bias' not in quantization:
+            quantization['use_bias'] = True  # Default to using bias
+        else:
+            if not isinstance(quantization['use_bias'], bool):
+                raise ValueError("'use_bias' must be a boolean value.")
+        
         # Check signed quantization flag (add default if missing)
         if 'quantize_signed' not in quantization:
             quantization['quantize_signed'] = True  # Default to signed quantization

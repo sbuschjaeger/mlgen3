@@ -7,6 +7,9 @@ import torch.nn as nn
 import argparse
 import numpy as np
 
+from mlgen3.implementations.matquant.matquant import MatQuant
+from mlgen3.utils import LayerRegistry
+
 from mlgen3.utils import (
     get_dataset, create_model, load_config, set_seed, get_seed_from_config
 )
@@ -21,27 +24,24 @@ def load_test_config(config_path='models-tuned/mlp/q864/config.yaml'):
     else:
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
-def run_baseline_inference(model, X_test, y_test, config):
+def run_baseline_inference(mq_model, X_test, y_test, config):
     """Run baseline inference with the PyTorch model for each bit-width."""
     print("\nRunning baseline MatQuant inference for each bit-width...")
     
-    from mlgen3.implementations.matquant.matquant import MatQuant
-    from mlgen3.utils import LayerRegistry
+    # # Create MatQuant wrapper
+    # mq_model = MatQuant(model, config)
     
-    # Create MatQuant wrapper
-    mq_model = MatQuant(model, config)
+    # # Register layers
+    # layer_registry = LayerRegistry()
+    # quantize_bias = config['quantization'].get('quantize_bias', True)
+    # all_layers = layer_registry.register_model(model, include_bias=quantize_bias)
     
-    # Register layers
-    layer_registry = LayerRegistry()
-    quantize_bias = config['quantization'].get('quantize_bias', True)
-    all_layers = layer_registry.register_model(model, include_bias=quantize_bias)
+    # # Set quantized layers
+    # quantize_layers = config['quantization'].get('quantized_params_list', ['all'])
+    # if quantize_layers == ["all"] or quantize_layers == "all":
+    #     quantize_layers = all_layers
     
-    # Set quantized layers
-    quantize_layers = config['quantization'].get('quantized_params_list', ['all'])
-    if quantize_layers == ["all"] or quantize_layers == "all":
-        quantize_layers = all_layers
-    
-    mq_model.set_quantization(quantize_layers, set())  # Empty set for activations in C impl
+    # mq_model.set_quantization(quantize_layers, set())  # Empty set for activations in C impl
     
     # Extract and test models at each bit-width
     target_bits = config['quantization']['target_bits']
@@ -156,11 +156,14 @@ def generate_c_model(model_path, config, seed=707):
     current_linear_idx = 0
     new_checkpoint = {}
     
+    # Get use_bias flag from config
+    use_bias = config['quantization'].get('use_bias', True)
+    
     for ckpt_layer_idx in linear_layers_in_ckpt:
         ckpt_weight_key = f"model.{ckpt_layer_idx}.weight"
         ckpt_bias_key = f"model.{ckpt_layer_idx}.bias"
         
-        if ckpt_weight_key in normalized_checkpoint and ckpt_bias_key in normalized_checkpoint:
+        if ckpt_weight_key in normalized_checkpoint:
             # Find the corresponding Linear layer in current model
             current_layer_idx = None
             linear_count = 0
@@ -173,7 +176,11 @@ def generate_c_model(model_path, config, seed=707):
             
             if current_layer_idx is not None:
                 new_checkpoint[f"model.{current_layer_idx}.weight"] = normalized_checkpoint[ckpt_weight_key]
-                new_checkpoint[f"model.{current_layer_idx}.bias"] = normalized_checkpoint[ckpt_bias_key]
+                
+                # Only load bias if use_bias is True and bias exists in checkpoint
+                if use_bias and ckpt_bias_key in normalized_checkpoint:
+                    new_checkpoint[f"model.{current_layer_idx}.bias"] = normalized_checkpoint[ckpt_bias_key]
+                
                 current_linear_idx += 1
     
     print(f"Mapped checkpoint keys : {list(new_checkpoint.keys())}")
@@ -186,9 +193,6 @@ def generate_c_model(model_path, config, seed=707):
     dataset_name = config['model']['dataset']
     X_train, y_train, X_test, y_test = get_dataset(dataset_name, as_tensors=True, flatten=True)
     
-    # Run baseline MatQuant inference for all bit-widths
-    baseline_results = run_baseline_inference(model, X_test, y_test, config)
-    print("\nBaseline inference completed.\n")
 
     # Extract to MLGen3 format using the highest bit-width model
     from mlgen3.implementations.matquant.matquant import MatQuant
@@ -198,16 +202,19 @@ def generate_c_model(model_path, config, seed=707):
     mq_model_temp = MatQuant(model, config)
     
     # Register layers
-    layer_registry = LayerRegistry()
-    quantize_bias = config['quantization'].get('quantize_bias', True)
-    all_layers = layer_registry.register_model(model, include_bias=quantize_bias)
+    layer_registry = LayerRegistry(model, config)
+
     
     # Set quantized layers
     quantize_layers = config['quantization'].get('quantized_params_list', ['all'])
     if quantize_layers == ["all"] or quantize_layers == "all":
-        quantize_layers = all_layers
+        quantize_layers = layer_registry.quantizable_params
     
     mq_model_temp.set_quantization(quantize_layers, set())
+
+    # Run baseline MatQuant inference for all bit-widths
+    baseline_results = run_baseline_inference(mq_model_temp, X_test, y_test, config)
+    print("\nBaseline inference completed.\n")
     
     # Extract model at highest bit-width (8-bit for storage)
     max_bits = max(config['quantization']['target_bits'])
@@ -221,13 +228,14 @@ def generate_c_model(model_path, config, seed=707):
     binary_dir = "generated_code/matquant_pt_mnist_c/mq_pt_model_binary"
     os.makedirs(binary_dir, exist_ok=True)
     
-    # Create C implementation
+    # Create C implementation with use_bias parameter
     implementation = MatQuantPT_C(
         mlgen_model,
         feature_type="float",
         label_type="float",
         internal_type="float",
-        quantize_signed=config['quantization'].get('quantize_signed', True)
+        quantize_signed=config['quantization'].get('quantize_signed', True),
+        use_bias=use_bias  # Pass use_bias to implementation
     )
     
     implementation.set_model_binary_dir(binary_dir)

@@ -18,6 +18,8 @@ class MLP(nn.Module):
                     - input_size (int): Size of the input image (<=> width <=> height)
                     - output_size (int): Number of output classes.
                     - hidden_layers (list[dict]): List of dictionaries containing sizes for each hidden layer.
+                quantization:
+                    - use_bias (bool): Whether to use bias in Linear layers (default: True)
         """
 
         super(MLP, self).__init__()
@@ -27,6 +29,9 @@ class MLP(nn.Module):
         input_size = config['model']['input_size']
         output_size = config['model']['output_size']
         hidden_layers = config['model']['hidden_layers']
+        
+        # Check if bias should be used (default to True)
+        self.use_bias = config['quantization'].get('use_bias', True)
         
         # Add input quantization if enabled
         self.use_input_quantization = config['quantization'].get('quantize_input', True)
@@ -52,7 +57,7 @@ class MLP(nn.Module):
         for layer_config in hidden_layers:
             layer_size = layer_config['size']
 
-            layers.append(nn.Linear(prev_size, layer_size))
+            layers.append(nn.Linear(prev_size, layer_size, bias=self.use_bias))
 
             # Depending on the target bits, add different activation functions
             if config['quantization']['use_matquant'] is False:
@@ -71,7 +76,7 @@ class MLP(nn.Module):
             prev_size = layer_size
         
         # Output layer
-        layers.append(nn.Linear(prev_size, output_size))
+        layers.append(nn.Linear(prev_size, output_size, bias=self.use_bias))
         
         # Create sequential model
         self.model = nn.Sequential(*layers)

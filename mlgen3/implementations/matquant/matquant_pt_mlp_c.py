@@ -13,10 +13,11 @@ class MatQuantPT_C(Implementation):
     """
     
     def __init__(self, model, feature_type="float", label_type="float", internal_type="float",
-                 quantize_signed=True):
+                 quantize_signed=True, use_bias=True):
         super().__init__(model, feature_type, label_type)
         self.internal_type = internal_type
         self.quantize_signed = quantize_signed
+        self.use_bias = use_bias  # Add use_bias parameter
         self.filename = None
         self.model_binary_dir = None
         
@@ -62,13 +63,14 @@ class MatQuantPT_C(Implementation):
                 with open(os.path.join(self.model_binary_dir, f"layer_{lid}_lin_weight_qparams.bin"), 'wb') as f:
                     f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
                 
-                # Quantize bias
-                bias = layer.bias.astype(np.float32)
-                qparams = self._quantize_to_8bit(bias)
-                qparams["quantized_values"].tofile(
-                    os.path.join(self.model_binary_dir, f"layer_{lid}_lin_bias.bin"))
-                with open(os.path.join(self.model_binary_dir, f"layer_{lid}_lin_bias_qparams.bin"), 'wb') as f:
-                    f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
+                # Only quantize and save bias if use_bias is True
+                if self.use_bias and layer.bias is not None:
+                    bias = layer.bias.astype(np.float32)
+                    qparams = self._quantize_to_8bit(bias)
+                    qparams["quantized_values"].tofile(
+                        os.path.join(self.model_binary_dir, f"layer_{lid}_lin_bias.bin"))
+                    with open(os.path.join(self.model_binary_dir, f"layer_{lid}_lin_bias_qparams.bin"), 'wb') as f:
+                        f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
                     
             elif isinstance(layer, BatchNorm):
                 # Quantize scale (renamed from 'scale' to 'bn_scale')
@@ -135,10 +137,14 @@ void predict(const float* input, float* output, int input_size, int output_size)
                 code += f"""static {int_type} layer_{lid}_lin_weight_q8[{layer.output_shape}][{layer.input_shape}];
 static float layer_{lid}_lin_weight_scale;
 static float layer_{lid}_lin_weight_zero_point;
-static {int_type} layer_{lid}_lin_bias_q8[{layer.output_shape}];
+"""
+                # Only declare bias arrays if use_bias is True
+                if self.use_bias:
+                    code += f"""static {int_type} layer_{lid}_lin_bias_q8[{layer.output_shape}];
 static float layer_{lid}_lin_bias_scale;
 static float layer_{lid}_lin_bias_zero_point;
-static float layer_{lid}_lin_output[{layer.output_shape}];
+"""
+                code += f"""static float layer_{lid}_lin_output[{layer.output_shape}];
 """
             elif isinstance(layer, BatchNorm):
                 code += f"""static {int_type} layer_{lid}_bn_scale_q8[{layer.output_shape}];
@@ -224,7 +230,10 @@ int load_model_parameters(void) {
                      &layer_{lid}_lin_weight_scale, 
                      &layer_{lid}_lin_weight_zero_point)) return 0;
     
-    if (!load_binary_file("mq_pt_model_binary/layer_{lid}_lin_bias.bin",
+"""
+                # Only load bias if use_bias is True
+                if self.use_bias:
+                    code += f"""    if (!load_binary_file("mq_pt_model_binary/layer_{lid}_lin_bias.bin",
                          layer_{lid}_lin_bias_q8,
                          sizeof(layer_{lid}_lin_bias_q8))) return 0;
     if (!load_qparams("mq_pt_model_binary/layer_{lid}_lin_bias_qparams.bin",
@@ -288,12 +297,29 @@ void predict(const float* input, float* output, int input_size, int output_size)
             
             if isinstance(layer, Linear):
                 output_var = f"layer_{lid}_lin_output"
-                code += f"""
-    /* Linear layer {lid} */
+                
+                # Generate different code depending on use_bias
+                if self.use_bias:
+                    code += f"""
+    /* Linear layer {lid} with bias */
     for (int i = 0; i < {layer.output_shape}; i++) {{
         float acc = dequantize(layer_{lid}_lin_bias_q8[i], 
                              layer_{lid}_lin_bias_scale, 
                              layer_{lid}_lin_bias_zero_point);
+        for (int j = 0; j < {layer.input_shape}; j++) {{
+            float weight_dequant = dequantize(layer_{lid}_lin_weight_q8[i][j],
+                                            layer_{lid}_lin_weight_scale,
+                                            layer_{lid}_lin_weight_zero_point);
+            acc += weight_dequant * {input_var}[j];
+        }}
+        {output_var}[i] = acc;
+    }}
+"""
+                else:
+                    code += f"""
+    /* Linear layer {lid} without bias */
+    for (int i = 0; i < {layer.output_shape}; i++) {{
+        float acc = 0.0f;
         for (int j = 0; j < {layer.input_shape}; j++) {{
             float weight_dequant = dequantize(layer_{lid}_lin_weight_q8[i][j],
                                             layer_{lid}_lin_weight_scale,

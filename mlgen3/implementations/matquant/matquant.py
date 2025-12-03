@@ -4,8 +4,6 @@ import torch.nn.functional as F
 
 from copy import deepcopy
 
-# from ..utils.metrics import print_tensor_binary
-# from ..utils.batchnorm_folding import fold_model_batchnorm
 from .activation_quantizer import MQ_ActivationQuantizer
 from .input_quantizer import InputQuantizer
 
@@ -506,7 +504,8 @@ class MatQuant(nn.Module):
                 # Save original weights
                 original_params[name] = param.data.clone()
 
-                if 'bias' in name and self.quantize_bias:
+                # Only quantize bias if it exists and bias quantization is enabled
+                if 'bias' in name and self.quantize_bias and param is not None:
                     
                     if prnt:
                         print(f"\nQuantizing layer {name} to {bias_bits}-bit")
@@ -784,7 +783,8 @@ class MatQuant(nn.Module):
                 else:
                     prnt = False
 
-                if 'bias' in name and self.quantize_bias:
+                # Only quantize bias if it exists and bias quantization is enabled
+                if 'bias' in name and self.quantize_bias and param is not None:
                     if prnt:
                         print(f"\nQuantizing layer {name} to {bias_bits}-bit")
                         print(f"Original biases: {param.data.view(-1)[:5].cpu().numpy()}")
@@ -917,7 +917,8 @@ class MatQuant(nn.Module):
                 else:
                     prnt = False
                 
-                if 'bias' in name and self.quantize_bias:
+                # Only quantize bias if it exists and bias quantization is enabled
+                if 'bias' in name and self.quantize_bias and param is not None:
 
                     if print_bits == bits:
                             print(f"\nQuantizing layer {name} to {bias_bits}-bit")
