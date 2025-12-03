@@ -1,0 +1,85 @@
+quantization:
+  use_matquant: true
+  use_codistillation: false
+  use_qat: false
+  fx_mode: false
+  target_bits:
+  - 8
+  - 6
+  - 4
+  loss_weights:
+    8: 0.2
+    6: 0.4
+    4: 0.6
+  quantize_input: true
+  quantize_bias: true
+  quantize_weight: true
+  quantize_activation: true
+  quantize_signed: true
+  fold_bn_inference: false
+  quantized_params_list:
+  - all
+model:
+  name: vgg
+  dataset: fashion
+  num_channels: 1
+  num_blocks: 1
+  kernel_size: 3
+  stride: 1
+  padding: 1
+  input_size: 28
+  linear_layers:
+  - size: 2048
+  num_classes: 10
+training:
+  model_dir: /scratch/users/bereholschi/qnn/models/vgg/fashion/matquant
+  model_savename: q864_mq864_wab_s
+  dry_iterations: 10
+  optimizer: sgd
+  batch_size: 64
+  num_epochs: 25
+  learning_rate: 0.01
+  lr_scheduler: cosine
+  gamma: 0.1
+  step_size: 25
+  momentum: 0.9
+  weight_decay: 0.0001
+  val_split: 0.1
+  early_stopping:
+    enabled: true
+    monitor: test_accuracy
+    patience: 10
+    min_delta: 0.01
+evaluation:
+  model_path: ./models/vgg/fashion/matquant/q864_mq864_wab_s.pt
+  batch_size: 128
+  num_iterations: 1
+early_stopping_info:
+  epoch: 12
+  monitor: test_accuracy
+  score: 91.44333333333333
+  mode: max
+training_metrics:
+  epoch_loss: 0.16
+  val_loss: 0.53
+  test_avg_accuracy: 91.44
+  val_avg_accuracy: 90.96
+  per_bit_metrics:
+    8bit:
+      train_loss: 0.1
+      train_accuracy: 96.75
+      test_accuracy: 91.46
+      val_loss: 0.27
+      val_accuracy: 91.83
+    6bit:
+      train_loss: 0.1
+      train_accuracy: 96.41
+      test_accuracy: 91.54
+      val_loss: 0.36
+      val_accuracy: 91.37
+    4bit:
+      train_loss: 0.17
+      train_accuracy: 96.61
+      test_accuracy: 91.33
+      val_loss: 0.55
+      val_accuracy: 89.68

@@ -37,29 +37,45 @@ def check_config(config):
         for bit in quantization['target_bits']:
             if not isinstance(bit, int) or bit <= 0:
                 raise ValueError("All elements in 'target_bits' must be positive integers.")
-        
-        # Check quantization target (add default if missing)
-        if 'quantize_target' not in quantization:
-            quantization['quantize_target'] = "weights_only"  # Set default
+            
+        if 'quantize_input' not in quantization:
+            quantization['quantize_input'] = True  # Default to quantizing inputs
         else:
-            valid_targets = ["weights_only", "activations_only", "weights_and_activations"]
-            if quantization['quantize_target'] not in valid_targets:
-                raise ValueError(f"'quantize_target' must be one of {valid_targets}")
+            if not isinstance(quantization['quantize_input'], bool):
+                raise ValueError("'quantize_input' must be a boolean value.")
+
+        if 'quantize_weight' not in quantization:
+            quantization['quantize_weight'] = True  # Default to quantizing weights
+        else:
+            if not isinstance(quantization['quantize_weight'], bool):
+                raise ValueError("'quantize_weight' must be a boolean value.")
+            
+        if 'quantize_activation' not in quantization:
+            quantization['quantize_activation'] = True  # Default to quantizing activations
+        else:
+            if not isinstance(quantization['quantize_activation'], bool):
+                raise ValueError("'quantize_activation' must be a boolean value.")
         
         # Check bias quantization flag (add default if missing)
         if 'quantize_bias' not in quantization:
-            quantization['quantize_bias'] = False  # Default to not quantizing bias
+            quantization['quantize_bias'] = True  # Default to quantizing bias
         else:
             if not isinstance(quantization['quantize_bias'], bool):
                 raise ValueError("'quantize_bias' must be a boolean value.")
         
         # Check signed quantization flag (add default if missing)
         if 'quantize_signed' not in quantization:
-            quantization['quantize_signed'] = False  # Default to unsigned quantization
+            quantization['quantize_signed'] = True  # Default to signed quantization
         else:
             if not isinstance(quantization['quantize_signed'], bool):
                 raise ValueError("'quantize_signed' must be a boolean value.")
-        
+            
+        if 'fold_bn_inference' not in quantization:
+            quantization['fold_bn_inference'] = True  # Default to folding BatchNorm during inference
+        else:
+            if not isinstance(quantization['fold_bn_inference'], bool):
+                raise ValueError("'fold_bn_inference' must be a boolean value.")
+
         if quantization['use_matquant']:
             if 'use_codistillation' not in quantization:
                 raise ValueError("Missing 'use_codistillation' key in quantization settings.")
@@ -95,20 +111,20 @@ def check_config(config):
             raise ValueError("'fx_mode' must be a boolean value.")
         
         if quantization['use_matquant'] or quantization['use_qat']:
-            if 'quantize_layers' not in quantization:
-                raise ValueError("Missing 'quantize_layers' key in quantization settings.")
+            if 'quantized_params_list' not in quantization:
+                raise ValueError("Missing 'quantized_params_list' key in quantization settings.")
 
-            quantize_layers = quantization['quantize_layers']
-            if not isinstance(quantize_layers, (list, str)):
-                raise ValueError("'quantize_layers' must be a list or a string.")
+            quantized_params_list = quantization['quantized_params_list']
+            if not isinstance(quantized_params_list, (list, str)):
+                raise ValueError("'quantized_params_list' must be a list or a string.")
             
-            # Validate that quantize_layers contains only integers or only strings
-            if len(quantize_layers) > 0:
-                all_ints = all(isinstance(x, int) for x in quantize_layers)
-                all_strings = all(isinstance(x, str) for x in quantize_layers)
+            # Validate that quantized_params_list contains only integers or only strings
+            if len(quantized_params_list) > 0:
+                all_ints = all(isinstance(x, int) for x in quantized_params_list)
+                all_strings = all(isinstance(x, str) for x in quantized_params_list)
                 
                 if not (all_ints or all_strings):
-                    raise ValueError("'quantize_layers' must contain either all integers or all strings")
+                    raise ValueError("'quantized_params_list' must contain either all integers or all strings")
 
 
     ### Check model settings
@@ -119,15 +135,42 @@ def check_config(config):
             raise ValueError("Missing 'name' key in model settings.")
         if not isinstance(model['name'], str):
             raise ValueError("'name' must be a string.")
-        if model['name'].upper() not in ['MLP', 'VGG4', 'VGG8', 'RESNET18', 'RESNET52']:
-            raise ValueError("Invalid model name. Must be 'MLP', 'VGG4', 'VGG8', 'RESNET18', or 'RESNET52'.")
+        
+        # Expanded list of valid model names
+        valid_models = [
+            'MLP', 'VGG', 
+            'RESNET18', 'RESNET52',
+            'TIMM/RESNET18', 'TIMM/RESNET-18', 
+            'MICROSOFT/RESNET-18', 'MICROSOFT/RESNET-50',  # Changed from RESNET18 to RESNET-18
+            # MobileNet variants
+            'GOOGLE/MOBILENET_V1_1.0_224', 'GOOGLE/MOBILENET_V2_1.0_224',
+            'TIMM/MOBILENETV1_125.RA4_E3600_R224_IN1K',
+            'TIMM/MOBILENETV2_100.RA_IN1K',
+            'TIMM/MOBILENETV3_SMALL_100.LAMB_IN1K', 'TIMM/MOBILENETV3_LARGE_100.RA_IN1K',
+            'TIMM/MOBILENETV4_CONV_MEDIUM.E500_R256_IN1K',
+            # EfficientNet variants
+            'GOOGLE/EFFICIENTNET-B0',
+            'TIMM/EFFICIENTNET_B0.RA_IN1K'
+        ]
+        
+        if model['name'].upper() not in valid_models:
+            # More flexible matching for TIMM/Google models
+            name_lower = model['name'].lower()
+            is_valid = (
+                'mobilenet' in name_lower or 
+                'efficientnet' in name_lower or
+                'resnet' in name_lower or
+                model['name'].upper() in ['MLP', 'VGG', 'RESNET18', 'RESNET52']
+            )
+            if not is_valid:
+                raise ValueError(f"Invalid model name: {model['name']}. Must be one of the supported models or variants.")
 
         if 'dataset' not in model:
             raise ValueError("Missing 'dataset' key in model settings.")
         if not isinstance(model['dataset'], str):
             raise ValueError("'dataset' must be a string.")
-        if model['dataset'].upper() not in ['MNIST', 'FASHION', 'CIFAR10', 'IMAGENETTE', 'IMAGENET']:
-            raise ValueError("Invalid dataset name. Must be 'MNIST', 'FASHION', 'CIFAR10', 'IMAGENETTE', or 'IMAGENET'.")
+        if model['dataset'].upper() not in ['MNIST', 'FASHION', 'CIFAR10', 'CIFAR100', 'IMAGENETTE', 'IMAGENET', 'IMAGENET1K', 'IMAGENET-1K']:
+            raise ValueError("Invalid dataset name. Must be 'MNIST', 'FASHION', 'CIFAR10', 'CIFAR100', 'IMAGENETTE', or 'IMAGENET1K'.")
         
         if 'use_hf' in model and model['use_hf']:
             if not isinstance(model['use_hf'], bool):
@@ -253,12 +296,12 @@ def check_config(config):
             raise ValueError("'model_savename' must be a string.")
         
         if use_hf:
-            if 'split' not in training:
-                raise ValueError("Missing 'split' key in training settings.")
-            if not isinstance(training['split'], str):
-                raise ValueError("'split' must be a string.")
-            if training['split'].upper() not in ['TRAIN', 'TEST', 'VAL']:
-                raise ValueError("Invalid split name. Must be 'TRAIN', 'TEST', or 'VAL'.")
+            # if 'split' not in training:
+            #     raise ValueError("Missing 'split' key in training settings.")
+            # if not isinstance(training['split'], str):
+            #     raise ValueError("'split' must be a string.")
+            # if training['split'].upper() not in ['TRAIN', 'TEST', 'VAL']:
+            #     raise ValueError("Invalid split name. Must be 'TRAIN', 'TEST', or 'VAL'.")
             
             if 'samples' not in training:
                 raise ValueError("Missing 'samples' key in training settings.")
@@ -284,7 +327,7 @@ def check_config(config):
         
         if 'num_epochs' not in training:
             raise ValueError("Missing 'num_epochs' key in training settings.")
-        if not isinstance(training['num_epochs'], int) or training['num_epochs'] <= 0:
+        if not isinstance(training['num_epochs'], int) or training['num_epochs'] < 0:
             raise ValueError("'num_epochs' must be a positive integer.")
 
         if 'learning_rate' not in training:
@@ -312,6 +355,64 @@ def check_config(config):
         if not isinstance(training['weight_decay'], float) or training['weight_decay'] < 0:
             raise ValueError("'weight_decay' must be a non-negative floating point value.")
         
+        # Add validation for dry_iterations
+        if 'dry_iterations' not in training:
+            training['dry_iterations'] = 0  # Default to 0 if not specified
+        elif not isinstance(training['dry_iterations'], int) or training['dry_iterations'] < 0:
+            raise ValueError("'dry_iterations' must be a non-negative integer.")
+        
+        # Add validation for validation split
+        if 'val_split' not in training:
+            training['val_split'] = 0.0  # Default to 0 (no validation split)
+        elif not isinstance(training['val_split'], (int, float)) or training['val_split'] < 0 or training['val_split'] >= 1:
+            raise ValueError("'val_split' must be a number between 0 and 1 (exclusive).")
+        
+        # Add validation for early stopping parameters
+        if 'early_stopping' in training:
+            early_stopping = training['early_stopping']
+            
+            if not isinstance(early_stopping, dict):
+                raise ValueError("'early_stopping' must be a dictionary.")
+            
+            # Validate 'enabled' flag
+            if 'enabled' not in early_stopping:
+                early_stopping['enabled'] = False  # Default to disabled
+            elif not isinstance(early_stopping['enabled'], bool):
+                raise ValueError("'early_stopping.enabled' must be a boolean value.")
+            
+            # Only validate other parameters if early stopping is enabled
+            if early_stopping['enabled']:
+                # Validate 'monitor' parameter - now supports 4 options
+                if 'monitor' not in early_stopping:
+                    early_stopping['monitor'] = 'val_loss'  # Default to val_loss
+                elif not isinstance(early_stopping['monitor'], str):
+                    raise ValueError("'early_stopping.monitor' must be a string.")
+                elif early_stopping['monitor'] not in ['val_loss', 'val_accuracy', 'test_accuracy', 'epoch_loss']:
+                    raise ValueError("'early_stopping.monitor' must be one of: 'val_loss', 'val_accuracy', 'test_accuracy', 'epoch_loss'.")
+                
+                # Validate 'patience' parameter
+                if 'patience' not in early_stopping:
+                    early_stopping['patience'] = 5  # Default to 5 epochs
+                elif not isinstance(early_stopping['patience'], int) or early_stopping['patience'] <= 0:
+                    raise ValueError("'early_stopping.patience' must be a positive integer.")
+                
+                # Validate 'min_delta' parameter
+                if 'min_delta' not in early_stopping:
+                    early_stopping['min_delta'] = 0.001  # Default to 0.001
+                elif not isinstance(early_stopping['min_delta'], (int, float)) or early_stopping['min_delta'] < 0:
+                    raise ValueError("'early_stopping.min_delta' must be a non-negative number.")
+                
+                # Warn if monitoring validation metrics but no validation split is specified
+                if early_stopping['monitor'] in ['val_loss', 'val_accuracy'] and training.get('val_split', 0.0) <= 0:
+                    print(f"Warning: Early stopping is monitoring '{early_stopping['monitor']}' but 'val_split' is 0. Early stopping will not work properly without validation data.")
+        else:
+            # Add default early_stopping config if not present
+            training['early_stopping'] = {
+                'enabled': False,
+                'monitor': 'val_loss',
+                'patience': 5,
+                'min_delta': 0.001
+            }
 
     ### Check evaluation settings
     if 'evaluation' in config:
@@ -323,16 +424,16 @@ def check_config(config):
             raise ValueError("'model_path' must be a string.")
         
         if use_hf:
-            if 'split' not in training:
-                raise ValueError("Missing 'split' key in training settings.")
-            if not isinstance(training['split'], str):
-                raise ValueError("'split' must be a string.")
-            if training['split'].upper() not in ['TRAIN', 'TEST', 'VAL']:
-                raise ValueError("Invalid split name. Must be 'TRAIN', 'TEST', or 'VAL'.")
+            # if 'split' not in evaluation:
+            #     raise ValueError("Missing 'split' key in evaluation settings.")
+            # if not isinstance(evaluation['split'], str):
+            #     raise ValueError("'split' must be a string.")
+            # if evaluation['split'].upper() not in ['TRAIN', 'TEST', 'VAL']:
+            #     raise ValueError("Invalid split name. Must be 'TRAIN', 'TEST', or 'VAL'.")
             
-            if 'samples' not in training:
-                raise ValueError("Missing 'samples' key in training settings.")
-            if not isinstance(training['samples'], int) or training['samples'] <= 0:
+            if 'samples' not in evaluation:
+                raise ValueError("Missing 'samples' key in evaluation settings.")
+            if not isinstance(evaluation['samples'], int) or evaluation['samples'] <= 0:
                 raise ValueError("'samples' must be a positive integer.")
         
         if 'batch_size' not in evaluation:

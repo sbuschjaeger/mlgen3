@@ -24,14 +24,14 @@ class ModelFactory:
                 # Input layer
                 layers.append(nn.Linear(input_size, hidden_sizes[0]))
                 if use_batchnorm:
-                    layers.append(nn.BatchNorm1d(hidden_sizes[0]))
+                    layers.append(nn.BatchNorm1d(hidden_sizes[0], track_running_stats=True))
                 layers.append(nn.ReLU())
                 
                 # Hidden layers
                 for i in range(len(hidden_sizes) - 1):
                     layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i+1]))
                     if use_batchnorm:
-                        layers.append(nn.BatchNorm1d(hidden_sizes[i+1]))
+                        layers.append(nn.BatchNorm1d(hidden_sizes[i+1], track_running_stats=True))
                     layers.append(nn.ReLU())
                 
                 # Output layer
@@ -57,13 +57,13 @@ class ModelFactory:
                     # Conv block 1
                     nn.Conv2d(input_channels, 64, kernel_size=3, stride=1, padding=1),
                     nn.MaxPool2d(kernel_size=2, stride=2),
-                    nn.BatchNorm2d(64),
+                    nn.BatchNorm2d(64, track_running_stats=True),
                     nn.ReLU(inplace=True),
                     
                     # Conv block 2
                     nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
                     nn.MaxPool2d(kernel_size=2, stride=2),
-                    nn.BatchNorm2d(64),
+                    nn.BatchNorm2d(64, track_running_stats=True),
                     nn.ReLU(inplace=True),
                     
                     # Flatten and FC layers
@@ -105,34 +105,34 @@ class ModelFactory:
                     # Conv block 1
                     nn.Conv2d(input_channels, 128, kernel_size=3, stride=1, padding=1),
                     nn.MaxPool2d(kernel_size=2, stride=2),
-                    nn.BatchNorm2d(128),
+                    nn.BatchNorm2d(128, track_running_stats=True),
                     nn.ReLU(inplace=True),
                     
                     # Conv block 2
                     nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
-                    nn.BatchNorm2d(128),
+                    nn.BatchNorm2d(128, track_running_stats=True),
                     nn.ReLU(inplace=True),
                     
                     # Conv block 3
                     nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
                     nn.MaxPool2d(kernel_size=2, stride=2),
-                    nn.BatchNorm2d(256),
+                    nn.BatchNorm2d(256, track_running_stats=True),
                     nn.ReLU(inplace=True),
                     
                     # Conv block 4
                     nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
-                    nn.BatchNorm2d(256),
+                    nn.BatchNorm2d(256, track_running_stats=True),
                     nn.ReLU(inplace=True),
                     
                     # Conv block 5
                     nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=1),
                     nn.MaxPool2d(kernel_size=2, stride=2),
-                    nn.BatchNorm2d(512),
+                    nn.BatchNorm2d(512, track_running_stats=True),
                     nn.ReLU(inplace=True),
                     
                     # Conv block 6
                     nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1),
-                    nn.BatchNorm2d(512),
+                    nn.BatchNorm2d(512, track_running_stats=True),
                     nn.ReLU(inplace=True),
                     
                     # Flatten and FC layers

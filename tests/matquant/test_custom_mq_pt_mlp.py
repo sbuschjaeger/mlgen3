@@ -120,10 +120,9 @@ def extract_mlgen3_model(pytorch_model):
             weight = linear.weight.detach().numpy()
             bias = linear.bias.detach().numpy()
             
-            # Store layer index in name for easier mapping to mix-and-match config
             layer_name = f"model.{i}.weight"
             linear_layer = Linear(weight, bias)
-            linear_layer.layer_name = layer_name  # Store name for reference
+            linear_layer.layer_name = layer_name
             layers.append(linear_layer)
             
             # BatchNorm layer
@@ -146,8 +145,12 @@ def extract_mlgen3_model(pytorch_model):
             bias = linear.bias.detach().numpy()
             layers.append(Linear(weight, bias))
     
-    # Create MLGen3 model
     mlgen_model = NeuralNet.from_layers(layers)
+    
+    # Copy quantization parameters if available
+    if hasattr(pytorch_model, 'quantization_params'):
+        mlgen_model.quantization_params = pytorch_model.quantization_params
+    
     return mlgen_model
 
 def generate_uniform_model(bit_width, model_path=None, seed=707):

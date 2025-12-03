@@ -72,14 +72,16 @@ class LinuxStandalone(Materializer):
         if hasattr(self.implementation, 'implement'):
             self.implementation.implement()
 
-        # For MatQuant implementations, use the custom template
-        is_matquant = 'MatQuant' in self.implementation.__class__.__name__
+        # Determine file extensions based on implementation type
+        is_c_impl = 'MatQuantPT_C' in self.implementation.__class__.__name__
+        code_ext = ".c" if is_c_impl else ".cpp"
+        header_ext = ".h"
 
-        with open(os.path.join(self.path, self.filename + ".cpp"), "w") as f:
-            f.write(self.beautify(self.implementation.code))
+        with open(os.path.join(self.path, self.filename + code_ext), "w") as f:
+            f.write(self.implementation.code if is_c_impl else self.beautify(self.implementation.code))
 
-        with open(os.path.join(self.path, self.filename + ".h"), "w") as f:
-            f.write(self.beautify(self.implementation.header))
+        with open(os.path.join(self.path, self.filename + header_ext), "w") as f:
+            f.write(self.implementation.header if is_c_impl else self.beautify(self.implementation.header))
 
     def generate_tests(self):
         main_str = ""
@@ -162,6 +164,8 @@ class LinuxStandalone(Materializer):
         # Select the appropriate makefile template based on implementation type
         if self.use_onnx:
             makefile_template = "linuxstandalone_makefile_onnx.template"
+        elif 'MatQuantPT_C' in self.implementation.__class__.__name__:
+            makefile_template = "linuxstandalone_makefile_mq_pt_c.template"
         elif 'MatQuantPT' in self.implementation.__class__.__name__:
             makefile_template = "linuxstandalone_makefile_mq_pt.template"
         elif 'MatQuant' in self.implementation.__class__.__name__:
@@ -183,7 +187,9 @@ class LinuxStandalone(Materializer):
 
         if self.measure_time or self.measure_accuracy or self.measure_perf:
             # Select the appropriate main template
-            if 'MatQuant' in self.implementation.__class__.__name__:
+            if 'MatQuantPT_C' in self.implementation.__class__.__name__:
+                main_template = "linuxstandalone_main_mq_pt_c.template"
+            elif 'MatQuant' in self.implementation.__class__.__name__:
                 main_template = "linuxstandalone_main_mq.template"
             else:
                 main_template = "linuxstandalone_main.template"
@@ -194,8 +200,14 @@ class LinuxStandalone(Materializer):
                 .read_text()
             )
             
-            with open(os.path.join(self.path, "main.cpp"), "w") as f:
-                f.write(self.beautify(self._generate_main_code(main_str)))
+            # For C implementation, use simpler template replacement
+            if 'MatQuantPT_C' in self.implementation.__class__.__name__:
+                main_str = main_str.replace("{filename}", self.filename)
+                with open(os.path.join(self.path, "main.c"), "w") as f:
+                    f.write(main_str)
+            else:
+                with open(os.path.join(self.path, "main.cpp"), "w") as f:
+                    f.write(self.beautify(self._generate_main_code(main_str)))
 
         # Handle different data formats
         if type(self.implementation.model.XTest) == pd.core.frame.DataFrame:

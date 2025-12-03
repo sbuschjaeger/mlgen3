@@ -1,0 +1,81 @@
+quantization:
+  use_matquant: True
+  use_codistillation: False
+
+  use_qat: False
+  fx_mode: False
+  
+  target_bits: [8, 6, 4]
+  loss_weights: {8: 0.2, 6: 0.4, 4: 0.6}
+
+  quantize_input: True        # Enable 8-bit input quantization
+  quantize_bias: True         # Note that biases are quantized to 32-bits only
+  quantize_weight: True
+  quantize_activation: True   # Note that activations are quantized to 8-bits only
+  quantize_signed: True       # Whether to use signed quantization
+  fold_bn_inference: False     # Fold BatchNorm into Conv/Linear during inference
+
+  # ## for evaluating multiple (also untrained) bit-widths
+  # target_bits: [8, 7, 6, 5, 4, 3, 2, 1]
+  # loss_weights: {8: 0.4, 7: 0.0, 6: 0.0, 5: 0.0, 4: 0.8, 3: 0.0, 2: 0.8, 1: 0.0}
+
+  
+  # # Use --list-layers to get id and path of layers
+  # # Index-based selection (less robust)
+  # quantized_params_list: [0, 1, 2, 3, 4, 5, 6, 7]
+
+  ## 4, 5, 6 <=> 14.w, 18.w, 22.w very sensitive, if they are quantized, the model will go to 10%
+
+  # # Note that only a single model. prefix needs to be specified (--list-layers will show the full path)
+  # # Path-based selection (more robust)
+  # quantized_params_list:
+  #   - "model.0.weight"
+  #   - "model.4.weight"
+  #   - "model.7.weight"
+  #   - "model.11.weight"
+  #   - "model.14.weight"
+  #   - "model.18.weight"
+  #   - "model.22.weight"
+  #   - "model.24.weight"
+
+  quantized_params_list: ["all"]
+
+model:
+  name: vgg
+  dataset: cifar10
+  num_channels: 3
+  num_blocks: 3  # Number of VGG blocks (Conv+Max+Act and/or Conv+Act)
+  kernel_size: 3
+  stride: 1
+  padding: 1
+  input_size: 32
+  linear_layers:
+    - size: 1024
+  num_classes: 10
+
+training:
+  model_dir: ./models/vgg/cifar10/matquant
+  model_savename: q864_mq864_wab_s-best
+  dry_iterations: 40
+  optimizer: sgd
+  batch_size: 64
+  num_epochs: 100
+  learning_rate: 0.01
+  lr_scheduler: cosine
+  gamma: 0.1
+  step_size: 100
+  momentum: 0.9
+  weight_decay: 0.0001
+  
+  # Early stopping parameters
+  val_split: 0.1  # 10% of training data for validation
+  early_stopping:
+    enabled: True
+    monitor: 'val_accuracy'  # Options: 'val_loss' (min), 'val_accuracy' (max), 'test_accuracy' (max), 'epoch_loss' (min)
+    patience: 15
+    min_delta: 0.01
+
+evaluation:
+  model_path: ./models/vgg/cifar10/matquant/q864_mq864_wab_s-best.pt
+  batch_size: 128
+  num_iterations: 1
