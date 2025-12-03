@@ -120,10 +120,12 @@ def generate_c_model(model_path, config, seed=707):
     
     # Load state dict and handle key mismatches
     checkpoint = torch.load(model_path, map_location='cpu')
+
+    # print(checkpoint)
     
     # Debug: print checkpoint keys to understand structure
-    print(f"Checkpoint keys (first 10): {list(checkpoint.keys())[:10]}")
-    print(f"Model keys (first 10): {list(model.state_dict().keys())[:10]}")
+    print(f"Checkpoint keys : {list(checkpoint.keys())}")
+    print(f"Model keys : {list(model.state_dict().keys())}")
     
     # Normalize checkpoint keys - remove extra 'model.' prefix if present
     normalized_checkpoint = {}
@@ -135,7 +137,7 @@ def generate_c_model(model_path, config, seed=707):
         else:
             normalized_checkpoint[key] = value
     
-    print(f"Normalized checkpoint keys (first 10): {list(normalized_checkpoint.keys())[:10]}")
+    print(f"Normalized checkpoint keys : {list(normalized_checkpoint.keys())}")
     
     # Count Linear layers in normalized checkpoint
     linear_layers_in_ckpt = []
@@ -174,7 +176,7 @@ def generate_c_model(model_path, config, seed=707):
                 new_checkpoint[f"model.{current_layer_idx}.bias"] = normalized_checkpoint[ckpt_bias_key]
                 current_linear_idx += 1
     
-    print(f"Mapped checkpoint keys (first 10): {list(new_checkpoint.keys())[:10]}")
+    print(f"Mapped checkpoint keys : {list(new_checkpoint.keys())}")
     
     # Load the mapped state dict (only Linear layers, strict=False to ignore missing BatchNorm)
     model.load_state_dict(new_checkpoint, strict=False)

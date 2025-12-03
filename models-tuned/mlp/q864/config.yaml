@@ -49,6 +49,7 @@ training:
     min_delta: 0.01
 evaluation:
   model_path: ./models-tuned/mlp/q864/best_model.pt
+  test_samples: 10000
   batch_size: 128
   num_iterations: 1
 early_stopping_info:

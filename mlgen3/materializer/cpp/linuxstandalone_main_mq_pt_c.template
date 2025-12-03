@@ -4,28 +4,19 @@
 #include <time.h>
 #include "{filename}.h"
 
-typedef struct {
-    float** features;
-    int* labels;
-    int num_samples;
-    int num_features;
-} Dataset;
-
-Dataset* read_csv(const char* path) {
+/* Read CSV file and return data as dynamically allocated arrays */
+int read_csv(const char* path, float*** features_ptr, int** labels_ptr, int* num_samples_ptr, int* num_features_ptr) {
     FILE* file = fopen(path, "r");
     if (!file) {
         fprintf(stderr, "Error: Could not open file %s\n", path);
-        return NULL;
+        return 0;
     }
-    
-    Dataset* data = (Dataset*)malloc(sizeof(Dataset));
     
     /* Read header to find label position */
     char header[65536];
     if (!fgets(header, sizeof(header), file)) {
         fclose(file);
-        free(data);
-        return NULL;
+        return 0;
     }
     
     int label_pos = 0;
@@ -40,11 +31,11 @@ Dataset* read_csv(const char* path) {
     int num_samples = 0;
     int num_features = 0;
     rewind(file);
+    
     /* Skip header line */
     if (fgets(header, sizeof(header), file) == NULL) {
         fclose(file);
-        free(data);
-        return NULL;
+        return 0;
     }
     
     while (fgets(header, sizeof(header), file)) {
@@ -64,26 +55,41 @@ Dataset* read_csv(const char* path) {
         num_samples++;
     }
     
-    data->num_samples = num_samples;
-    data->num_features = num_features;
-    data->features = (float**)malloc(num_samples * sizeof(float*));
-    data->labels = (int*)malloc(num_samples * sizeof(int));
+    /* Allocate memory */
+    float** features = (float**)malloc(num_samples * sizeof(float*));
+    int* labels = (int*)malloc(num_samples * sizeof(int));
+    
+    if (!features || !labels) {
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        fclose(file);
+        free(features);
+        free(labels);
+        return 0;
+    }
     
     /* Read data */
     rewind(file);
     if (fgets(header, sizeof(header), file) == NULL) { /* Skip header */
         fclose(file);
-        for (int i = 0; i < num_samples; i++) {
-            free(data->features[i]);
-        }
-        free(data->features);
-        free(data->labels);
-        free(data);
-        return NULL;
+        free(features);
+        free(labels);
+        return 0;
     }
     
     for (int i = 0; i < num_samples; i++) {
-        data->features[i] = (float*)malloc(num_features * sizeof(float));
+        features[i] = (float*)malloc(num_features * sizeof(float));
+        if (!features[i]) {
+            fprintf(stderr, "Error: Memory allocation failed for sample %d\n", i);
+            fclose(file);
+            /* Free already allocated memory */
+            for (int j = 0; j < i; j++) {
+                free(features[j]);
+            }
+            free(features);
+            free(labels);
+            return 0;
+        }
+        
         if (!fgets(header, sizeof(header), file)) break;
         
         int col = 0;
@@ -91,9 +97,9 @@ Dataset* read_csv(const char* path) {
         token = strtok(header, ",");
         while (token != NULL) {
             if (col == label_pos) {
-                data->labels[i] = atoi(token);
+                labels[i] = atoi(token);
             } else {
-                data->features[i][feat_idx++] = (float)atof(token);
+                features[i][feat_idx++] = (float)atof(token);
             }
             col++;
             token = strtok(NULL, ",");
@@ -101,17 +107,14 @@ Dataset* read_csv(const char* path) {
     }
     
     fclose(file);
-    return data;
-}
-
-void free_dataset(Dataset* data) {
-    if (!data) return;
-    for (int i = 0; i < data->num_samples; i++) {
-        free(data->features[i]);
-    }
-    free(data->features);
-    free(data->labels);
-    free(data);
+    
+    /* Set output parameters */
+    *features_ptr = features;
+    *labels_ptr = labels;
+    *num_samples_ptr = num_samples;
+    *num_features_ptr = num_features;
+    
+    return 1;
 }
 
 int main(int argc, char* argv[]) {
@@ -128,16 +131,30 @@ int main(int argc, char* argv[]) {
     printf("Random seed set to: %u\n", seed);
     
     /* Load dataset */
-    Dataset* data = read_csv(path);
-    if (!data) {
+    float** features = NULL;
+    int* labels = NULL;
+    int num_samples = 0;
+    int num_features = 0;
+    
+    if (!read_csv(path, &features, &labels, &num_samples, &num_features)) {
         fprintf(stderr, "Error: Failed to load dataset\n");
         return 1;
     }
     
-    printf("Loaded %d samples with %d features\n", data->num_samples, data->num_features);
+    printf("Loaded %d samples with %d features\n", num_samples, num_features);
     
     /* Allocate output buffer */
-    float* output = (float*)malloc(10 * sizeof(float)); /* Assuming 10 classes */
+    float* output = (float*)malloc(10 * sizeof(float));
+    if (!output) {
+        fprintf(stderr, "Error: Memory allocation failed for output\n");
+        /* Free allocated memory */
+        for (int i = 0; i < num_samples; i++) {
+            free(features[i]);
+        }
+        free(features);
+        free(labels);
+        return 1;
+    }
     
     /* Benchmark */
     int matches = 0;
@@ -145,8 +162,8 @@ int main(int argc, char* argv[]) {
     
     for (int r = 0; r < repeat; r++) {
         matches = 0;
-        for (int i = 0; i < data->num_samples; i++) {
-            predict(data->features[i], output, data->num_features, 10);
+        for (int i = 0; i < num_samples; i++) {
+            predict(features[i], output, num_features, 10);
             
             /* Find argmax */
             int argmax = 0;
@@ -158,15 +175,15 @@ int main(int argc, char* argv[]) {
                 }
             }
             
-            if (argmax == data->labels[i]) {
+            if (argmax == labels[i]) {
                 matches++;
             }
         }
     }
     
     clock_t end = clock();
-    double runtime = ((double)(end - start)) / CLOCKS_PER_SEC / (data->num_samples * repeat) * 1000.0;
-    float accuracy = (float)matches / data->num_samples * 100.0f;
+    double runtime = ((double)(end - start)) / CLOCKS_PER_SEC / (num_samples * repeat) * 1000.0;
+    float accuracy = (float)matches / num_samples * 100.0f;
     
     printf("RUNNING BENCHMARK WITH %d REPETITIONS\n", repeat);
     printf("Accuracy: %.2f %%\n", accuracy);
@@ -174,7 +191,11 @@ int main(int argc, char* argv[]) {
     
     /* Cleanup */
     free(output);
-    free_dataset(data);
+    for (int i = 0; i < num_samples; i++) {
+        free(features[i]);
+    }
+    free(features);
+    free(labels);
     
     return 0;
 }

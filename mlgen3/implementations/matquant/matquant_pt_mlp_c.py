@@ -42,6 +42,9 @@ class MatQuantPT_C(Implementation):
             scale = (val_max - val_min) / 255.0 if val_min != val_max else 1.0
             zero_point = -val_min / scale if scale != 0 else 0.0
             quantized = np.clip(np.round(values / scale + zero_point), 0, 255).astype(np.uint8)
+
+        # print(quantized)
+        # exit(0)
         
         return {"quantized_values": quantized, "scale": scale, "zero_point": zero_point}
     
@@ -55,28 +58,28 @@ class MatQuantPT_C(Implementation):
                 weight = layer.weight.astype(np.float32)
                 qparams = self._quantize_to_8bit(weight)
                 qparams["quantized_values"].tofile(
-                    os.path.join(self.model_binary_dir, f"layer_{lid}_weight.bin"))
-                with open(os.path.join(self.model_binary_dir, f"layer_{lid}_weight_qparams.bin"), 'wb') as f:
+                    os.path.join(self.model_binary_dir, f"layer_{lid}_lin_weight.bin"))
+                with open(os.path.join(self.model_binary_dir, f"layer_{lid}_lin_weight_qparams.bin"), 'wb') as f:
                     f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
                 
                 # Quantize bias
                 bias = layer.bias.astype(np.float32)
                 qparams = self._quantize_to_8bit(bias)
                 qparams["quantized_values"].tofile(
-                    os.path.join(self.model_binary_dir, f"layer_{lid}_bias.bin"))
-                with open(os.path.join(self.model_binary_dir, f"layer_{lid}_bias_qparams.bin"), 'wb') as f:
+                    os.path.join(self.model_binary_dir, f"layer_{lid}_lin_bias.bin"))
+                with open(os.path.join(self.model_binary_dir, f"layer_{lid}_lin_bias_qparams.bin"), 'wb') as f:
                     f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
                     
             elif isinstance(layer, BatchNorm):
-                # Quantize scale
+                # Quantize scale (renamed from 'scale' to 'bn_scale')
                 scale = layer.scale.astype(np.float32)
                 qparams = self._quantize_to_8bit(scale)
                 qparams["quantized_values"].tofile(
-                    os.path.join(self.model_binary_dir, f"layer_{lid}_scale.bin"))
-                with open(os.path.join(self.model_binary_dir, f"layer_{lid}_scale_qparams.bin"), 'wb') as f:
+                    os.path.join(self.model_binary_dir, f"layer_{lid}_bn_scale.bin"))
+                with open(os.path.join(self.model_binary_dir, f"layer_{lid}_bn_scale_qparams.bin"), 'wb') as f:
                     f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
                 
-                # Quantize bias
+                # Quantize bias (already named 'bn_bias')
                 bias = layer.bias.astype(np.float32)
                 qparams = self._quantize_to_8bit(bias)
                 qparams["quantized_values"].tofile(
@@ -126,28 +129,28 @@ void predict(const float* input, float* output, int input_size, int output_size)
 /* Global arrays for model parameters */
 """
         
-        # Declare global arrays for each layer
+        # Declare global arrays for each layer with type-specific naming
         for lid, layer in enumerate(self.model.layers):
             if isinstance(layer, Linear):
-                code += f"""static {int_type} layer_{lid}_weight_q8[{layer.output_shape}][{layer.input_shape}];
-static float layer_{lid}_weight_scale;
-static float layer_{lid}_weight_zero_point;
-static {int_type} layer_{lid}_bias_q8[{layer.output_shape}];
-static float layer_{lid}_bias_scale;
-static float layer_{lid}_bias_zero_point;
-static float layer_{lid}_output[{layer.output_shape}];
+                code += f"""static {int_type} layer_{lid}_lin_weight_q8[{layer.output_shape}][{layer.input_shape}];
+static float layer_{lid}_lin_weight_scale;
+static float layer_{lid}_lin_weight_zero_point;
+static {int_type} layer_{lid}_lin_bias_q8[{layer.output_shape}];
+static float layer_{lid}_lin_bias_scale;
+static float layer_{lid}_lin_bias_zero_point;
+static float layer_{lid}_lin_output[{layer.output_shape}];
 """
             elif isinstance(layer, BatchNorm):
-                code += f"""static {int_type} layer_{lid}_scale_q8[{layer.output_shape}];
-static float layer_{lid}_scale_scale;
-static float layer_{lid}_scale_zero_point;
-static {int_type} layer_{lid}_bias_q8[{layer.output_shape}];
-static float layer_{lid}_bias_scale;
-static float layer_{lid}_bias_zero_point;
-static float layer_{lid}_output[{layer.output_shape}];
+                code += f"""static {int_type} layer_{lid}_bn_scale_q8[{layer.output_shape}];
+static float layer_{lid}_bn_scale_scale;
+static float layer_{lid}_bn_scale_zero_point;
+static {int_type} layer_{lid}_bn_bias_q8[{layer.output_shape}];
+static float layer_{lid}_bn_bias_scale;
+static float layer_{lid}_bn_bias_zero_point;
+static float layer_{lid}_bn_output[{layer.output_shape}];
 """
             elif isinstance(layer, Relu):
-                code += f"""static float layer_{lid}_output[{layer.output_shape}];
+                code += f"""static float layer_{lid}_relu_output[{layer.output_shape}];
 """
         
         # Add load_model_parameters function
@@ -214,36 +217,36 @@ int load_model_parameters(void) {
             if isinstance(layer, Linear):
                 code += f"""
     /* Load Linear layer {lid} */
-    if (!load_binary_file("mq_pt_model_binary/layer_{lid}_weight.bin", 
-                         layer_{lid}_weight_q8, 
-                         sizeof(layer_{lid}_weight_q8))) return 0;
-    if (!load_qparams("mq_pt_model_binary/layer_{lid}_weight_qparams.bin",
-                     &layer_{lid}_weight_scale, 
-                     &layer_{lid}_weight_zero_point)) return 0;
+    if (!load_binary_file("mq_pt_model_binary/layer_{lid}_lin_weight.bin", 
+                         layer_{lid}_lin_weight_q8, 
+                         sizeof(layer_{lid}_lin_weight_q8))) return 0;
+    if (!load_qparams("mq_pt_model_binary/layer_{lid}_lin_weight_qparams.bin",
+                     &layer_{lid}_lin_weight_scale, 
+                     &layer_{lid}_lin_weight_zero_point)) return 0;
     
-    if (!load_binary_file("mq_pt_model_binary/layer_{lid}_bias.bin",
-                         layer_{lid}_bias_q8,
-                         sizeof(layer_{lid}_bias_q8))) return 0;
-    if (!load_qparams("mq_pt_model_binary/layer_{lid}_bias_qparams.bin",
-                     &layer_{lid}_bias_scale,
-                     &layer_{lid}_bias_zero_point)) return 0;
+    if (!load_binary_file("mq_pt_model_binary/layer_{lid}_lin_bias.bin",
+                         layer_{lid}_lin_bias_q8,
+                         sizeof(layer_{lid}_lin_bias_q8))) return 0;
+    if (!load_qparams("mq_pt_model_binary/layer_{lid}_lin_bias_qparams.bin",
+                     &layer_{lid}_lin_bias_scale,
+                     &layer_{lid}_lin_bias_zero_point)) return 0;
 """
             elif isinstance(layer, BatchNorm):
                 code += f"""
     /* Load BatchNorm layer {lid} */
-    if (!load_binary_file("mq_pt_model_binary/layer_{lid}_scale.bin",
-                         layer_{lid}_scale_q8,
-                         sizeof(layer_{lid}_scale_q8))) return 0;
-    if (!load_qparams("mq_pt_model_binary/layer_{lid}_scale_qparams.bin",
-                     &layer_{lid}_scale_scale,
-                     &layer_{lid}_scale_zero_point)) return 0;
+    if (!load_binary_file("mq_pt_model_binary/layer_{lid}_bn_scale.bin",
+                         layer_{lid}_bn_scale_q8,
+                         sizeof(layer_{lid}_bn_scale_q8))) return 0;
+    if (!load_qparams("mq_pt_model_binary/layer_{lid}_bn_scale_qparams.bin",
+                     &layer_{lid}_bn_scale_scale,
+                     &layer_{lid}_bn_scale_zero_point)) return 0;
     
     if (!load_binary_file("mq_pt_model_binary/layer_{lid}_bn_bias.bin",
-                         layer_{lid}_bias_q8,
-                         sizeof(layer_{lid}_bias_q8))) return 0;
+                         layer_{lid}_bn_bias_q8,
+                         sizeof(layer_{lid}_bn_bias_q8))) return 0;
     if (!load_qparams("mq_pt_model_binary/layer_{lid}_bn_bias_qparams.bin",
-                     &layer_{lid}_bias_scale,
-                     &layer_{lid}_bias_zero_point)) return 0;
+                     &layer_{lid}_bn_bias_scale,
+                     &layer_{lid}_bn_bias_zero_point)) return 0;
 """
         
         code += """
@@ -269,39 +272,53 @@ void predict(const float* input, float* output, int input_size, int output_size)
 """
         
         for lid, layer in enumerate(self.model.layers):
-            input_var = "input" if lid == 0 else f"layer_{lid-1}_output"
-            output_var = f"layer_{lid}_output"
+            # Determine input variable name based on previous layer type
+            if lid == 0:
+                input_var = "input"
+            else:
+                prev_layer = self.model.layers[lid-1]
+                if isinstance(prev_layer, Linear):
+                    input_var = f"layer_{lid-1}_lin_output"
+                elif isinstance(prev_layer, BatchNorm):
+                    input_var = f"layer_{lid-1}_bn_output"
+                elif isinstance(prev_layer, Relu):
+                    input_var = f"layer_{lid-1}_relu_output"
+                else:
+                    input_var = f"layer_{lid-1}_output"
             
             if isinstance(layer, Linear):
+                output_var = f"layer_{lid}_lin_output"
                 code += f"""
     /* Linear layer {lid} */
     for (int i = 0; i < {layer.output_shape}; i++) {{
-        float acc = dequantize(layer_{lid}_bias_q8[i], 
-                             layer_{lid}_bias_scale, 
-                             layer_{lid}_bias_zero_point);
+        float acc = dequantize(layer_{lid}_lin_bias_q8[i], 
+                             layer_{lid}_lin_bias_scale, 
+                             layer_{lid}_lin_bias_zero_point);
         for (int j = 0; j < {layer.input_shape}; j++) {{
-            float weight_dequant = dequantize(layer_{lid}_weight_q8[i][j],
-                                            layer_{lid}_weight_scale,
-                                            layer_{lid}_weight_zero_point);
+            float weight_dequant = dequantize(layer_{lid}_lin_weight_q8[i][j],
+                                            layer_{lid}_lin_weight_scale,
+                                            layer_{lid}_lin_weight_zero_point);
             acc += weight_dequant * {input_var}[j];
         }}
         {output_var}[i] = acc;
     }}
 """
             elif isinstance(layer, BatchNorm):
+                output_var = f"layer_{lid}_bn_output"
                 code += f"""
     /* BatchNorm layer {lid} */
     for (int i = 0; i < {layer.output_shape}; i++) {{
-        float scale_dequant = dequantize(layer_{lid}_scale_q8[i],
-                                        layer_{lid}_scale_scale,
-                                        layer_{lid}_scale_zero_point);
-        float bias_dequant = dequantize(layer_{lid}_bias_q8[i],
-                                       layer_{lid}_bias_scale,
-                                       layer_{lid}_bias_zero_point);
+        float scale_dequant = dequantize(layer_{lid}_bn_scale_q8[i],
+                                        layer_{lid}_bn_scale_scale,
+                                        layer_{lid}_bn_scale_zero_point);
+        float bias_dequant = dequantize(layer_{lid}_bn_bias_q8[i],
+                                       layer_{lid}_bn_bias_scale,
+                                       layer_{lid}_bn_bias_zero_point);
         {output_var}[i] = {input_var}[i] * scale_dequant + bias_dequant;
     }}
 """
             elif isinstance(layer, Relu):
+                output_var = f"layer_{lid}_relu_output"
                 code += f"""
     /* ReLU layer {lid} */
     for (int i = 0; i < {layer.output_shape}; i++) {{
@@ -309,11 +326,20 @@ void predict(const float* input, float* output, int input_size, int output_size)
     }}
 """
         
-        # Copy final output
-        final_layer = len(self.model.layers) - 1
+        # Copy final output - determine the type of the final layer
+        final_layer = self.model.layers[-1]
+        if isinstance(final_layer, Linear):
+            final_output_var = f"layer_{len(self.model.layers)-1}_lin_output"
+        elif isinstance(final_layer, BatchNorm):
+            final_output_var = f"layer_{len(self.model.layers)-1}_bn_output"
+        elif isinstance(final_layer, Relu):
+            final_output_var = f"layer_{len(self.model.layers)-1}_relu_output"
+        else:
+            final_output_var = f"layer_{len(self.model.layers)-1}_output"
+            
         code += f"""
     /* Copy output */
-    memcpy(output, layer_{final_layer}_output, output_size * sizeof(float));
+    memcpy(output, {final_output_var}, output_size * sizeof(float));
 }}
 """
         
