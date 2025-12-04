@@ -1,0 +1,8 @@
+COMPILER = {compiler}
+FLAGS = -std=c99 -Wall -O3 -lm
+
+all:
+	$(COMPILER) $(FLAGS) main.c {filename}.c -o {filename}
+
+clean:
+	rm -f {filename}

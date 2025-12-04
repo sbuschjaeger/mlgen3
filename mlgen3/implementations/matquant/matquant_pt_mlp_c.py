@@ -5,21 +5,27 @@ from mlgen3.implementations.implementation import Implementation
 from mlgen3.models.nn.linear import Linear
 from mlgen3.models.nn.batchnorm import BatchNorm
 from mlgen3.models.nn.activations import Relu
+from mlgen3.utils.bitplane import pack_weights_2d_bitplane, pack_weights_bitplane
 
 class MatQuantPT_C(Implementation):
     """
     Pure C implementation of MatQuant for MLP models.
     Generates integer-only arithmetic C code with 8-bit quantized weights.
+    Supports both binary file loading and embedded header file weights.
+    Weights are packed in bitplane-interleaved format for efficient bit-slicing.
     """
     
     def __init__(self, model, feature_type="float", label_type="float", internal_type="float",
-                 quantize_signed=True, use_bias=True):
+                 quantize_signed=True, use_bias=True, use_header_weights=True):
         super().__init__(model, feature_type, label_type)
         self.internal_type = internal_type
         self.quantize_signed = quantize_signed
-        self.use_bias = use_bias  # Add use_bias parameter
+        self.use_bias = use_bias
+        self.use_header_weights = use_header_weights
         self.filename = None
         self.model_binary_dir = None
+        self.weights_header = None
+        self.weights_debug_header = None
         
     def set_filename(self, filename):
         """Set the filename for header inclusion."""
@@ -43,11 +49,180 @@ class MatQuantPT_C(Implementation):
             scale = (val_max - val_min) / 255.0 if val_min != val_max else 1.0
             zero_point = -val_min / scale if scale != 0 else 0.0
             quantized = np.clip(np.round(values / scale + zero_point), 0, 255).astype(np.uint8)
-
-        # print(quantized)
-        # exit(0)
         
         return {"quantized_values": quantized, "scale": scale, "zero_point": zero_point}
+    
+    def _format_array_1d(self, values, name, dtype_str="int8_t", items_per_line=16):
+        """Format a 1D array as C code."""
+        values = np.array(values).flatten()
+        lines = []
+        for i in range(0, len(values), items_per_line):
+            chunk = values[i:min(i + items_per_line, len(values))]
+            chunk_str = ", ".join(str(int(v)) for v in chunk)
+            lines.append(f"    {chunk_str}")
+        values_str = ",\n".join(lines)
+        return f"static const {dtype_str} {name}[{len(values)}] = {{\n{values_str}\n}};\n"
+    
+    def _format_array_2d(self, values, name, rows, cols, dtype_str="int8_t", items_per_line=16):
+        """Format a 2D array as C code."""
+        values = np.array(values).reshape(rows, cols)
+        lines = []
+        for i in range(rows):
+            row = values[i]
+            row_parts = []
+            for j in range(0, cols, items_per_line):
+                chunk = row[j:min(j + items_per_line, cols)]
+                chunk_str = ", ".join(str(int(v)) for v in chunk)
+                row_parts.append(chunk_str)
+            row_str = ", ".join(row_parts)
+            lines.append(f"    {{{row_str}}}")
+        values_str = ",\n".join(lines)
+        return f"static const {dtype_str} {name}[{rows}][{cols}] = {{\n{values_str}\n}};\n"
+    
+    def extract_model_parameters_to_header(self):
+        """Extract model parameters and generate C headers with packed and unpacked weights."""
+        int_type = "int8_t" if self.quantize_signed else "uint8_t"
+        
+        # Header for PACKED weights (bitplane-interleaved)
+        header_code = f"""/* Auto-generated model weights header - BITPLANE PACKED */
+#ifndef {self.filename.upper()}_WEIGHTS_H
+#define {self.filename.upper()}_WEIGHTS_H
+
+#include <stdint.h>
+
+/* 
+ * Weights are packed in bitplane-interleaved format.
+ * This allows extracting lower bit-width versions by reading fewer bytes:
+ * - 2-bit: read bytes 0-3 per 16-value block
+ * - 4-bit: read bytes 0-7 per 16-value block
+ * - 8-bit: read all 16 bytes per block
+ */
+
+"""
+        
+        # Header for UNPACKED weights (original quantized values for debugging)
+        debug_header_code = f"""/* Auto-generated DEBUG header with UNPACKED weights (original quantized values) */
+#ifndef {self.filename.upper()}_WEIGHTS_DEBUG_H
+#define {self.filename.upper()}_WEIGHTS_DEBUG_H
+
+#include <stdint.h>
+
+/* This file contains the original quantized int8 weights BEFORE bitplane packing.
+ * Use this for debugging and verification purposes.
+ */
+
+"""
+        
+        for lid, layer in enumerate(self.model.layers):
+            if isinstance(layer, Linear):
+                # Quantize weights
+                weight = layer.weight.astype(np.float32)
+                qparams = self._quantize_to_8bit(weight)
+                quantized_weights = qparams["quantized_values"]
+                
+                # Pack weights using bitplane interleaving
+                packed_weights = pack_weights_2d_bitplane(quantized_weights, signed=self.quantize_signed)
+                
+                # Add PACKED weights to main header
+                header_code += f"/* Linear layer {lid} weights - BITPLANE PACKED */\n"
+                header_code += self._format_array_2d(
+                    packed_weights, 
+                    f"layer_{lid}_lin_weight_q8",
+                    layer.output_shape, layer.input_shape, int_type
+                )
+                header_code += f"static const float layer_{lid}_lin_weight_scale = {qparams['scale']:.10f}f;\n"
+                header_code += f"static const float layer_{lid}_lin_weight_zero_point = {qparams['zero_point']:.10f}f;\n\n"
+                
+                # Add UNPACKED weights to debug header
+                debug_header_code += f"/* Linear layer {lid} weights - UNPACKED (original quantized) */\n"
+                debug_header_code += f"/* Shape: [{layer.output_shape}][{layer.input_shape}] */\n"
+                debug_header_code += f"/* Scale: {qparams['scale']:.10f}, Zero Point: {qparams['zero_point']:.10f} */\n"
+                debug_header_code += self._format_array_2d(
+                    quantized_weights,
+                    f"layer_{lid}_lin_weight_q8_unpacked",
+                    layer.output_shape, layer.input_shape, int_type
+                )
+                debug_header_code += "\n"
+                
+                # Quantize bias if enabled
+                if self.use_bias and layer.bias is not None:
+                    bias = layer.bias.astype(np.float32)
+                    bias_qparams = self._quantize_to_8bit(bias)
+                    quantized_bias = bias_qparams["quantized_values"]
+                    
+                    # Pack bias using bitplane interleaving
+                    packed_bias = pack_weights_bitplane(quantized_bias, signed=self.quantize_signed)
+                    
+                    # Add PACKED bias to main header
+                    header_code += f"/* Linear layer {lid} bias - BITPLANE PACKED */\n"
+                    header_code += self._format_array_1d(
+                        packed_bias,
+                        f"layer_{lid}_lin_bias_q8", int_type
+                    )
+                    header_code += f"static const float layer_{lid}_lin_bias_scale = {bias_qparams['scale']:.10f}f;\n"
+                    header_code += f"static const float layer_{lid}_lin_bias_zero_point = {bias_qparams['zero_point']:.10f}f;\n\n"
+                    
+                    # Add UNPACKED bias to debug header
+                    debug_header_code += f"/* Linear layer {lid} bias - UNPACKED (original quantized) */\n"
+                    debug_header_code += f"/* Shape: [{layer.output_shape}] */\n"
+                    debug_header_code += f"/* Scale: {bias_qparams['scale']:.10f}, Zero Point: {bias_qparams['zero_point']:.10f} */\n"
+                    debug_header_code += self._format_array_1d(
+                        quantized_bias,
+                        f"layer_{lid}_lin_bias_q8_unpacked", int_type
+                    )
+                    debug_header_code += "\n"
+                    
+            elif isinstance(layer, BatchNorm):
+                # Quantize scale
+                scale = layer.scale.astype(np.float32)
+                scale_qparams = self._quantize_to_8bit(scale)
+                quantized_scale = scale_qparams["quantized_values"]
+                packed_scale = pack_weights_bitplane(quantized_scale, signed=self.quantize_signed)
+                
+                header_code += f"/* BatchNorm layer {lid} scale - BITPLANE PACKED */\n"
+                header_code += self._format_array_1d(
+                    packed_scale,
+                    f"layer_{lid}_bn_scale_q8", int_type
+                )
+                header_code += f"static const float layer_{lid}_bn_scale_scale = {scale_qparams['scale']:.10f}f;\n"
+                header_code += f"static const float layer_{lid}_bn_scale_zero_point = {scale_qparams['zero_point']:.10f}f;\n\n"
+                
+                debug_header_code += f"/* BatchNorm layer {lid} scale - UNPACKED */\n"
+                debug_header_code += f"/* Shape: [{layer.output_shape}] */\n"
+                debug_header_code += self._format_array_1d(
+                    quantized_scale,
+                    f"layer_{lid}_bn_scale_q8_unpacked", int_type
+                )
+                debug_header_code += "\n"
+                
+                # Quantize bias
+                bias = layer.bias.astype(np.float32)
+                bias_qparams = self._quantize_to_8bit(bias)
+                quantized_bias = bias_qparams["quantized_values"]
+                packed_bias = pack_weights_bitplane(quantized_bias, signed=self.quantize_signed)
+                
+                header_code += f"/* BatchNorm layer {lid} bias - BITPLANE PACKED */\n"
+                header_code += self._format_array_1d(
+                    packed_bias,
+                    f"layer_{lid}_bn_bias_q8", int_type
+                )
+                header_code += f"static const float layer_{lid}_bn_bias_scale = {bias_qparams['scale']:.10f}f;\n"
+                header_code += f"static const float layer_{lid}_bn_bias_zero_point = {bias_qparams['zero_point']:.10f}f;\n\n"
+                
+                debug_header_code += f"/* BatchNorm layer {lid} bias - UNPACKED */\n"
+                debug_header_code += f"/* Shape: [{layer.output_shape}] */\n"
+                debug_header_code += self._format_array_1d(
+                    quantized_bias,
+                    f"layer_{lid}_bn_bias_q8_unpacked", int_type
+                )
+                debug_header_code += "\n"
+        
+        header_code += f"#endif /* {self.filename.upper()}_WEIGHTS_H */\n"
+        debug_header_code += f"#endif /* {self.filename.upper()}_WEIGHTS_DEBUG_H */\n"
+        
+        self.weights_header = header_code
+        self.weights_debug_header = debug_header_code
+        return header_code
     
     def extract_model_parameters(self):
         """Extract and save model parameters as 8-bit quantized binary files."""
@@ -55,7 +230,6 @@ class MatQuantPT_C(Implementation):
         
         for lid, layer in enumerate(self.model.layers):
             if isinstance(layer, Linear):
-                # Quantize weights
                 weight = layer.weight.astype(np.float32)
                 qparams = self._quantize_to_8bit(weight)
                 qparams["quantized_values"].tofile(
@@ -63,7 +237,6 @@ class MatQuantPT_C(Implementation):
                 with open(os.path.join(self.model_binary_dir, f"layer_{lid}_lin_weight_qparams.bin"), 'wb') as f:
                     f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
                 
-                # Only quantize and save bias if use_bias is True
                 if self.use_bias and layer.bias is not None:
                     bias = layer.bias.astype(np.float32)
                     qparams = self._quantize_to_8bit(bias)
@@ -73,7 +246,6 @@ class MatQuantPT_C(Implementation):
                         f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
                     
             elif isinstance(layer, BatchNorm):
-                # Quantize scale (renamed from 'scale' to 'bn_scale')
                 scale = layer.scale.astype(np.float32)
                 qparams = self._quantize_to_8bit(scale)
                 qparams["quantized_values"].tofile(
@@ -81,7 +253,6 @@ class MatQuantPT_C(Implementation):
                 with open(os.path.join(self.model_binary_dir, f"layer_{lid}_bn_scale_qparams.bin"), 'wb') as f:
                     f.write(struct.pack('ff', qparams["scale"], qparams["zero_point"]))
                 
-                # Quantize bias (already named 'bn_bias')
                 bias = layer.bias.astype(np.float32)
                 qparams = self._quantize_to_8bit(bias)
                 qparams["quantized_values"].tofile(
@@ -91,19 +262,155 @@ class MatQuantPT_C(Implementation):
     
     def implement(self):
         """Generate pure C code for the model."""
-        if self.model_binary_dir:
-            self.extract_model_parameters()
-        
         int_type = "int8_t" if self.quantize_signed else "uint8_t"
         
-        # Generate header
-        self.header = self._generate_header(int_type)
-        
-        # Generate implementation
-        self.code = self._generate_code(int_type)
+        if self.use_header_weights:
+            self.extract_model_parameters_to_header()
+            self.header = self._generate_header_with_embedded_weights(int_type)
+            self.code = self._generate_code_with_embedded_weights(int_type)
+        else:
+            if self.model_binary_dir:
+                self.extract_model_parameters()
+            self.header = self._generate_header(int_type)
+            self.code = self._generate_code(int_type)
     
+    def _generate_header_with_embedded_weights(self, int_type):
+        """Generate C header file with embedded weights."""
+        return f"""#ifndef {self.filename.upper()}_H
+#define {self.filename.upper()}_H
+
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+/* Model configuration */
+#define NUM_LAYERS {len(self.model.layers)}
+#define QUANTIZE_SIGNED {1 if self.quantize_signed else 0}
+#define USE_BIAS {1 if self.use_bias else 0}
+
+/* Function prototypes */
+void predict(const float* input, float* output, int input_size, int output_size);
+
+#endif /* {self.filename.upper()}_H */
+"""
+
+    def _generate_code_with_embedded_weights(self, int_type):
+        """Generate C implementation file with embedded weights (no file loading)."""
+        code = f"""#include "{self.filename}.h"
+#include "{self.filename}_weights.h"
+#include <string.h>
+
+/* Output buffers */
+"""
+        for lid, layer in enumerate(self.model.layers):
+            if isinstance(layer, Linear):
+                code += f"static float layer_{lid}_lin_output[{layer.output_shape}];\n"
+            elif isinstance(layer, BatchNorm):
+                code += f"static float layer_{lid}_bn_output[{layer.output_shape}];\n"
+            elif isinstance(layer, Relu):
+                code += f"static float layer_{lid}_relu_output[{layer.output_shape}];\n"
+        
+        code += f"""
+/* Dequantize function */
+static inline float dequantize({int_type} value, float scale, float zero_point) {{
+    return ((float)value - zero_point) * scale;
+}}
+
+/* Predict function */
+void predict(const float* input, float* output, int input_size, int output_size) {{
+"""
+        
+        for lid, layer in enumerate(self.model.layers):
+            if lid == 0:
+                input_var = "input"
+            else:
+                prev_layer = self.model.layers[lid-1]
+                if isinstance(prev_layer, Linear):
+                    input_var = f"layer_{lid-1}_lin_output"
+                elif isinstance(prev_layer, BatchNorm):
+                    input_var = f"layer_{lid-1}_bn_output"
+                elif isinstance(prev_layer, Relu):
+                    input_var = f"layer_{lid-1}_relu_output"
+                else:
+                    input_var = f"layer_{lid-1}_output"
+            
+            if isinstance(layer, Linear):
+                output_var = f"layer_{lid}_lin_output"
+                
+                if self.use_bias:
+                    code += f"""
+    /* Linear layer {lid} with bias */
+    for (int i = 0; i < {layer.output_shape}; i++) {{
+        float acc = dequantize(layer_{lid}_lin_bias_q8[i], 
+                             layer_{lid}_lin_bias_scale, 
+                             layer_{lid}_lin_bias_zero_point);
+        for (int j = 0; j < {layer.input_shape}; j++) {{
+            float weight_dequant = dequantize(layer_{lid}_lin_weight_q8[i][j],
+                                            layer_{lid}_lin_weight_scale,
+                                            layer_{lid}_lin_weight_zero_point);
+            acc += weight_dequant * {input_var}[j];
+        }}
+        {output_var}[i] = acc;
+    }}
+"""
+                else:
+                    code += f"""
+    /* Linear layer {lid} without bias */
+    for (int i = 0; i < {layer.output_shape}; i++) {{
+        float acc = 0.0f;
+        for (int j = 0; j < {layer.input_shape}; j++) {{
+            float weight_dequant = dequantize(layer_{lid}_lin_weight_q8[i][j],
+                                            layer_{lid}_lin_weight_scale,
+                                            layer_{lid}_lin_weight_zero_point);
+            acc += weight_dequant * {input_var}[j];
+        }}
+        {output_var}[i] = acc;
+    }}
+"""
+            elif isinstance(layer, BatchNorm):
+                output_var = f"layer_{lid}_bn_output"
+                code += f"""
+    /* BatchNorm layer {lid} */
+    for (int i = 0; i < {layer.output_shape}; i++) {{
+        float scale_dequant = dequantize(layer_{lid}_bn_scale_q8[i],
+                                        layer_{lid}_bn_scale_scale,
+                                        layer_{lid}_bn_scale_zero_point);
+        float bias_dequant = dequantize(layer_{lid}_bn_bias_q8[i],
+                                       layer_{lid}_bn_bias_scale,
+                                       layer_{lid}_bn_bias_zero_point);
+        {output_var}[i] = {input_var}[i] * scale_dequant + bias_dequant;
+    }}
+"""
+            elif isinstance(layer, Relu):
+                output_var = f"layer_{lid}_relu_output"
+                code += f"""
+    /* ReLU layer {lid} */
+    for (int i = 0; i < {layer.output_shape}; i++) {{
+        {output_var}[i] = {input_var}[i] > 0.0f ? {input_var}[i] : 0.0f;
+    }}
+"""
+        
+        final_layer = self.model.layers[-1]
+        if isinstance(final_layer, Linear):
+            final_output_var = f"layer_{len(self.model.layers)-1}_lin_output"
+        elif isinstance(final_layer, BatchNorm):
+            final_output_var = f"layer_{len(self.model.layers)-1}_bn_output"
+        elif isinstance(final_layer, Relu):
+            final_output_var = f"layer_{len(self.model.layers)-1}_relu_output"
+        else:
+            final_output_var = f"layer_{len(self.model.layers)-1}_output"
+            
+        code += f"""
+    /* Copy output */
+    memcpy(output, {final_output_var}, output_size * sizeof(float));
+}}
+"""
+        
+        return code
+
     def _generate_header(self, int_type):
-        """Generate C header file."""
+        """Generate C header file (for binary file mode)."""
         return f"""#ifndef {self.filename.upper()}_H
 #define {self.filename.upper()}_H
 
@@ -124,21 +431,19 @@ void predict(const float* input, float* output, int input_size, int output_size)
 """
     
     def _generate_code(self, int_type):
-        """Generate C implementation file."""
+        """Generate C implementation file (for binary file mode)."""
         code = f"""#include "{self.filename}.h"
 #include <string.h>
 
 /* Global arrays for model parameters */
 """
         
-        # Declare global arrays for each layer with type-specific naming
         for lid, layer in enumerate(self.model.layers):
             if isinstance(layer, Linear):
                 code += f"""static {int_type} layer_{lid}_lin_weight_q8[{layer.output_shape}][{layer.input_shape}];
 static float layer_{lid}_lin_weight_scale;
 static float layer_{lid}_lin_weight_zero_point;
 """
-                # Only declare bias arrays if use_bias is True
                 if self.use_bias:
                     code += f"""static {int_type} layer_{lid}_lin_bias_q8[{layer.output_shape}];
 static float layer_{lid}_lin_bias_scale;
@@ -159,10 +464,7 @@ static float layer_{lid}_bn_output[{layer.output_shape}];
                 code += f"""static float layer_{lid}_relu_output[{layer.output_shape}];
 """
         
-        # Add load_model_parameters function
         code += "\n" + self._generate_load_function(int_type)
-        
-        # Add predict function
         code += "\n" + self._generate_predict_function(int_type)
         
         return code
@@ -231,7 +533,6 @@ int load_model_parameters(void) {
                      &layer_{lid}_lin_weight_zero_point)) return 0;
     
 """
-                # Only load bias if use_bias is True
                 if self.use_bias:
                     code += f"""    if (!load_binary_file("mq_pt_model_binary/layer_{lid}_lin_bias.bin",
                          layer_{lid}_lin_bias_q8,
@@ -281,7 +582,6 @@ void predict(const float* input, float* output, int input_size, int output_size)
 """
         
         for lid, layer in enumerate(self.model.layers):
-            # Determine input variable name based on previous layer type
             if lid == 0:
                 input_var = "input"
             else:
@@ -298,7 +598,6 @@ void predict(const float* input, float* output, int input_size, int output_size)
             if isinstance(layer, Linear):
                 output_var = f"layer_{lid}_lin_output"
                 
-                # Generate different code depending on use_bias
                 if self.use_bias:
                     code += f"""
     /* Linear layer {lid} with bias */
@@ -352,7 +651,6 @@ void predict(const float* input, float* output, int input_size, int output_size)
     }}
 """
         
-        # Copy final output - determine the type of the final layer
         final_layer = self.model.layers[-1]
         if isinstance(final_layer, Linear):
             final_output_var = f"layer_{len(self.model.layers)-1}_lin_output"

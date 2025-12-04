@@ -235,7 +235,8 @@ def generate_c_model(model_path, config, seed=707):
         label_type="float",
         internal_type="float",
         quantize_signed=config['quantization'].get('quantize_signed', True),
-        use_bias=use_bias  # Pass use_bias to implementation
+        use_bias=use_bias,  # Pass use_bias to implementation
+        use_header_weights=True
     )
     
     implementation.set_model_binary_dir(binary_dir)
