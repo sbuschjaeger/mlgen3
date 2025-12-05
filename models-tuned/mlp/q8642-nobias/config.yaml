@@ -31,9 +31,11 @@ model:
   - size: 512
   output_size: 10
   use_hf: false
+  use_batchnorm: false
+  use_bias: false
 training:
   model_dir: ./models/mlp/matquant
-  model_savename: q8642_mq8642_wab_s
+  model_savename: q8642_mq8642_wa_s
   dry_iterations: 10
   optimizer: sgd
   batch_size: 256

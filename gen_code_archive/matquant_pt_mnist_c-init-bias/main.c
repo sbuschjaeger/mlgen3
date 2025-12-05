@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "matquant_pt_c.h"
+#include "mq_pt_mlp.h"
 
 /* Read CSV file and return data as dynamically allocated arrays */
 int read_csv(const char* path, float*** features_ptr, int** labels_ptr, int* num_samples_ptr, int* num_features_ptr) {

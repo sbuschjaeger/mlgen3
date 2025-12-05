@@ -31,6 +31,8 @@ model:
   - size: 512
   output_size: 10
   use_hf: false
+  use_bias: true
+  use_batchnorm: false
 training:
   model_dir: ./models/mlp/matquant
   model_savename: q864_mq864_wab_s

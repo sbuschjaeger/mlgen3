@@ -1,3 +1,4 @@
+import numpy as np
 from .layer import Layer
 
 class Linear(Layer):
@@ -18,12 +19,15 @@ class Linear(Layer):
         input_shape = [N, I]: The dimension of the input tensor
         output_shape = [N, D]: The dimension of the resulting output tensor
         weight (D x I): The weights
-        bias (D): The biases
+        bias (D): The biases (can be None if no bias)
     """
-    def __init__(self, weight, bias):
+    def __init__(self, weight, bias=None):
         self.weight = weight 
-        self.bias = bias 
+        self.bias = bias
         super().__init__(weight.shape[1], weight.shape[0])
     
     def __call__(self, x):
-        return x @ self.weight.T + self.bias
+        result = x @ self.weight.T
+        if self.bias is not None:
+            result = result + self.bias
+        return result

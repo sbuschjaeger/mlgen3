@@ -13,7 +13,8 @@ class ModelFactory:
         input_size: int = 784,
         hidden_sizes: list = [128, 64],
         num_classes: int = 10,
-        use_batchnorm: bool = True
+        use_batchnorm: bool = False,
+        use_bias: bool = False
     ) -> nn.Module:
         """Create an MLP model."""
         class MLP(nn.Module):
@@ -22,20 +23,20 @@ class ModelFactory:
                 layers = []
                 
                 # Input layer
-                layers.append(nn.Linear(input_size, hidden_sizes[0]))
+                layers.append(nn.Linear(input_size, hidden_sizes[0], bias=use_bias))
                 if use_batchnorm:
                     layers.append(nn.BatchNorm1d(hidden_sizes[0], track_running_stats=True))
                 layers.append(nn.ReLU())
                 
                 # Hidden layers
                 for i in range(len(hidden_sizes) - 1):
-                    layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i+1]))
+                    layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i+1], bias=use_bias))
                     if use_batchnorm:
                         layers.append(nn.BatchNorm1d(hidden_sizes[i+1], track_running_stats=True))
                     layers.append(nn.ReLU())
                 
                 # Output layer
-                layers.append(nn.Linear(hidden_sizes[-1], num_classes))
+                layers.append(nn.Linear(hidden_sizes[-1], num_classes, bias=use_bias))
                 
                 self.model = nn.Sequential(*layers)
             
@@ -179,7 +180,8 @@ def create_model(config: Dict[str, Any]) -> nn.Module:
             input_size=input_size * input_size,  # Flatten 2D input
             hidden_sizes=hidden_sizes,
             num_classes=num_classes,
-            use_batchnorm=model_config.get('use_batchnorm', True)
+            use_batchnorm=model_config.get('use_batchnorm', True),
+            use_bias=model_config.get('use_bias', True)
         )
     elif model_name == 'vgg4':
         return ModelFactory.create_vgg4(
