@@ -2,6 +2,26 @@ import re
 from pathlib import Path
 import numpy as np
 
+# ----------------- First rows (Weights) ----------------
+#
+# Unpacked:
+#
+# -53, -7, 57, 96, 104, -60, 52, -55, 101, 100, -88, -116, 8, -53, -125, 114
+# 0b11001011, 0b11111001, 0b00111001, 0b01100000, 0b01101000, 0b11000100, 0b00110100, 0b11001001, 0b01100101, 0b01100100, 0b10101000, 0b10001100, 0b00001000, 0b11001011, 0b10000011, 0b01110010
+# 
+# Packed (2-bit planes) currently:
+#
+# 79, -51, -91, 108, -68, 50, 42, -64, 42, -106, -27, 10, 23, 64, 1, -68
+# 0b01001111, 0b11001101, 0b10100101, 0b01101100, 0b10111100, 0b00110010, 0b00101010, 0b11000000, 0b00101010, 0b10010110, 0b11100101, 0b00001010, 0b00010111, 0b01000000, 0b00000001, 0b10111100
+#
+# Expected packed (2-bit planes):
+#
+# -15, 115, 90, 57, -68, -116, -88, 67, -88, -106, 91, 32, -44, 1, 64, 62
+# 0b11110001, 0b01110011, 0b01011010, 0b00111001, 0b10111100, 0b10001100, 0b10101000, 0b01000011, 0b10101000, 0b10010110, 0b01011011, 0b00100000, 0b11010100, 0b00000001, 0b01000000, 0b00111110
+# 
+# ----------------- End first rows (Weights) ----------------
+
+
 # ---------------- PARAMETERS ----------------
 SIGNED = True  # Set True for signed interpretation, False for unsigned
 
@@ -14,17 +34,27 @@ def detect_dims(text):
     return get_dim("M_d"), get_dim("K_d"), get_dim("N_d")
 
 def pack_block_2bitplanes(block16):
-    """Pack 16 uint8 values into 4 groups of 2-bit planes (MSB-first)."""
+    """Pack 16 uint8 values into 4 groups of 2-bit planes (MSB-first).
+    
+    For each bitplane (bits [7:6], [5:4], [3:2], [1:0]):
+      - Take 2 bits from values 0-3, pack into byte 0 (value 0 at MSB)
+      - Take 2 bits from values 4-7, pack into byte 1 (value 4 at MSB)
+      - Take 2 bits from values 8-11, pack into byte 2 (value 8 at MSB)
+      - Take 2 bits from values 12-15, pack into byte 3 (value 12 at MSB)
+    """
     assert len(block16) == 16
     packed = []
     for group in range(3, -1, -1):  # bits [7:6], [5:4], [3:2], [1:0]
         shift = group * 2
-        word = 0
-        for i, val in enumerate(block16):
-            two_bits = (val >> shift) & 0x3
-            word |= (two_bits << (2 * i))
-        for b in range(4):
-            packed.append((word >> (8 * b)) & 0xFF)
+        # Process 4 bytes, each containing 4 values' 2-bit slices
+        for byte_idx in range(4):
+            byte_val = 0
+            for i in range(4):
+                val_idx = byte_idx * 4 + i
+                two_bits = (block16[val_idx] >> shift) & 0x3
+                # Pack with first value at MSB (bits 7:6), last at LSB (bits 1:0)
+                byte_val |= (two_bits << (2 * (3 - i)))
+            packed.append(byte_val)
     return packed
 
 def rearrange_bitplanes(values, cols):
