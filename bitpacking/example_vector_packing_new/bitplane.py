@@ -4,9 +4,9 @@ import numpy as np
 
 # ---------------- PARAMETERS ----------------
 SIGNED = True  # Set True for signed interpretation, False for unsigned
-M_d = 1  # Number of input rows (batch size)
-K_d = 32  # Input/weight columns (must be multiple of 16 and K_d * 2 must be a multiple of 64 for bus bandwith alignment)
-N_d = 1  # Number of output rows (output features)
+M_d = 10  # Number of input rows (batch size)
+K_d = 512  # Input/weight columns (must be multiple of 16 and K_d * 2 must be a multiple of 64 for bus bandwith alignment)
+N_d = 10  # Number of output rows (output features)
 
 # ---------------- UTILITY FUNCTIONS ----------------
 def detect_dims(text):
@@ -57,10 +57,24 @@ def pack_block_2bitplanes(block16):
 def rearrange_bitplanes(values, cols):
     """Rearrange row-major values into packed 2-bit planes per 16-element block."""
     output = []
-    for row_start in range(0, len(values), cols):
-        row = values[row_start:row_start+cols]
-        for blk_start in range(0, cols, 16):
-            output.extend(pack_block_2bitplanes(row[blk_start:blk_start+16]))
+    num_rows = len(values) // cols
+    if len(values) % cols != 0:
+        num_rows += 1
+    
+    for row_idx in range(num_rows):
+        row_start = row_idx * cols
+        row_end = min(row_start + cols, len(values))
+        row = values[row_start:row_end]
+        
+        # Pad row to be multiple of 16
+        if len(row) % 16 != 0:
+            padding_needed = 16 - (len(row) % 16)
+            row = row + [0] * padding_needed
+        
+        for blk_start in range(0, len(row), 16):
+            block = row[blk_start:blk_start+16]
+            assert len(block) == 16, f"Block at {blk_start} has {len(block)} elements, expected 16"
+            output.extend(pack_block_2bitplanes(block))
     return output
 
 def extract_2bit_matrix(packed, col_start, signed=False):
@@ -89,13 +103,37 @@ def extract_4bit_matrix(packed, col_start, signed=False):
     return result
 
 def parse_flat_array(name, text):
-    """Extract flat array values from a C header file."""
-    pattern = re.compile(rf"(?:u?int8_t|int8_t)\s+{name}\s*\[\s*\d+\s*\]\s*=\s*{{(.*?)}};", re.S)
-    match = pattern.search(text)
+    """Extract flat array values from a C header file, ignoring commented lines.
+    Supports both 1D arrays (input[512]) and 2D arrays (input[10][512]).
+    Returns: (values_list, dimensions_tuple)
+    """
+    # Remove C-style comments first
+    text_no_comments = re.sub(r'//.*?$', '', text, flags=re.MULTILINE)
+    
+    # Match both 1D: int8_t input[512] and 2D: int8_t input[10][512]
+    pattern = re.compile(
+        rf"(?:u?int8_t|int8_t)\s+{name}\s*"
+        rf"(\[(\d+)\])?(\[(\d+)\])"  # Capture dimensions
+        rf"\s*=\s*{{(.*?)}};",
+        re.S
+    )
+    match = pattern.search(text_no_comments)
     if not match:
         raise ValueError(f"Array {name} not found")
-    numbers = re.findall(r"-?\d+", match.group(1))
-    return list(map(int, numbers))
+    
+    # Extract dimensions
+    dim1 = int(match.group(2)) if match.group(2) else None
+    dim2 = int(match.group(4))
+    
+    numbers = re.findall(r"-?\d+", match.group(5))
+    values = list(map(int, numbers))
+    
+    if dim1 is None:
+        # 1D array
+        return values, (len(values),)
+    else:
+        # 2D array
+        return values, (dim1, dim2)
 
 def write_array(name, values, signed=False):
     ctype = "int8_t" if signed else "uint8_t"
@@ -114,6 +152,52 @@ def write_array_binary(name, values, signed=False):
     ctype = "int8_t" if signed else "uint8_t"
     lines = [", ".join(to_signed_8bit_binary(int(v)) for v in values[i:i+16]) for i in range(0, len(values), 16)]
     return f"// Binary representation of {name}\n{ctype} {name}_binary[{len(values)}] = {{\n    " + ",\n    ".join(lines) + "\n};\n\n"
+
+def write_array_2d(name, values, rows, cols, signed=False):
+    """Write array in 2D format with proper row/column structure."""
+    ctype = "int8_t" if signed else "uint8_t"
+    result = [f"{ctype} {name}[{len(values)}] = {{"]
+    
+    for row_idx in range(rows):
+        row_start = row_idx * cols
+        row_end = min(row_start + cols, len(values))
+        row_data = values[row_start:row_end]
+        
+        # Format row data in chunks of 16 for readability
+        row_lines = [", ".join(str(int(v)) for v in row_data[i:i+16]) 
+                     for i in range(0, len(row_data), 16)]
+        row_text = ",\n    ".join(row_lines)
+        
+        if row_idx < rows - 1:
+            result.append(f"    {row_text},")
+        else:
+            result.append(f"    {row_text}")
+    
+    result.append("};")
+    return "\n".join(result)
+
+def write_array_2d_binary(name, values, rows, cols, signed=False):
+    """Write 2D array with values in binary representation."""
+    ctype = "int8_t" if signed else "uint8_t"
+    result = [f"// Binary representation of {name}", f"{ctype} {name}_binary[{len(values)}] = {{"]
+    
+    for row_idx in range(rows):
+        row_start = row_idx * cols
+        row_end = min(row_start + cols, len(values))
+        row_data = values[row_start:row_end]
+        
+        # Format row data in chunks of 16 for readability
+        row_lines = [", ".join(to_signed_8bit_binary(int(v)) for v in row_data[i:i+16]) 
+                     for i in range(0, len(row_data), 16)]
+        row_text = ",\n    ".join(row_lines)
+        
+        if row_idx < rows - 1:
+            result.append(f"    {row_text},")
+        else:
+            result.append(f"    {row_text}")
+    
+    result.append("};")
+    return "\n".join(result) + "\n\n"
 
 def write_array_compact(name, values, signed=False):
     """Write array in compact single-line format for template."""
@@ -167,8 +251,21 @@ def main(infile=None, outfile="output.h", datafile="data.h"):
         M, K, N = detect_dims(text)
         if not all([M, K, N]):
             raise ValueError("Could not detect M_d, K_d, N_d from header")
-        input_vals = parse_flat_array("input", text)
-        weights_vals = parse_flat_array("weights", text)
+        
+        # Parse arrays with dimension info
+        input_vals, input_dims = parse_flat_array("input", text)
+        weights_vals, weights_dims = parse_flat_array("weights", text)
+        
+        # Determine if arrays are 2D
+        is_input_2d = len(input_dims) == 2
+        is_weights_2d = len(weights_dims) == 2
+        
+        if is_input_2d:
+            M, K = input_dims
+        if is_weights_2d:
+            N, K_w = weights_dims
+            if K_w != K:
+                raise ValueError(f"Dimension mismatch: input K={K}, weights K={K_w}")
     else:
         # Generate random matrices
         M, K, N = M_d, K_d, N_d
@@ -176,9 +273,13 @@ def main(infile=None, outfile="output.h", datafile="data.h"):
             raise ValueError(f"K={K} must be multiple of 16 for bitplane packing")
         print(f"Generating random matrices: M={M}, K={K}, N={N}")
         input_vals, weights_vals = generate_random_matrices(M, K, N, SIGNED)
-        text = ""  # Start with empty text for generated case
+        is_input_2d = M > 1
+        is_weights_2d = N > 1
+        input_dims = (M, K) if is_input_2d else (M * K,)
+        weights_dims = (N, K) if is_weights_2d else (N * K,)
+        text = ""
 
-    # Pack into bitplanes
+    # Pack into bitplanes (works the same for both 1D and 2D)
     input_packed   = rearrange_bitplanes(input_vals, K)
     weights_packed = rearrange_bitplanes(weights_vals, K)
 
@@ -221,74 +322,77 @@ def main(infile=None, outfile="output.h", datafile="data.h"):
     prod_2bit = in2_mat.astype(dtype32) @ wt2_mat.T.astype(dtype32)
     prod_4bit = in4_mat.astype(dtype32) @ wt4_mat.T.astype(dtype32)
 
-    # Generate output.h with all diagnostic arrays
-    if infile:
-        # Update existing file
-        text = re.sub(r"(?:u?int8_t|int8_t)\s+input\s*\[\s*\d+\s*\]\s*=\s*{.*?};",
-                      write_array("input", input_packed, SIGNED), text, flags=re.S)
-        text = re.sub(r"(?:u?int8_t|int8_t)\s+weights\s*\[\s*\d+\s*\]\s*=\s*{.*?};",
-                      write_array("weights", weights_packed, SIGNED), text, flags=re.S)
-        
-        # Add binary versions for input_unpacked and weights_unpacked
-        text = re.sub(r"((?:u?int8_t|int8_t)\s+input\s*\[.*?\]\s*=\s*{.*?};)",
-                    write_array_binary("input", input_packed, SIGNED), text, flags=re.S)
-        text = re.sub(r"((?:u?int8_t|int8_t)\s+weights\s*\[.*?\]\s*=\s*{.*?};)",
-                    write_array_binary("weights", weights_packed, SIGNED), text, flags=re.S)
-    else:
-        # Create new header from template
-        template = Path("template_output.h").read_text()
-        text = template.replace("{{M}}", str(M))
-        text = text.replace("{{K}}", str(K))
-        text = text.replace("{{N}}", str(N))
-        text = text.replace("{{INPUT_PACKED}}", write_array("input", input_packed, SIGNED))
-        text = text.replace("{{INPUT_PACKED_BIN}}", write_array_binary("input_packed_bin", input_packed, SIGNED))
-        text = text.replace("{{WEIGHTS_PACKED}}", write_array("weights", weights_packed, SIGNED))
-        text = text.replace("{{WEIGHTS_PACKED_BIN}}", write_array_binary("weights_packed_bin", weights_packed, SIGNED))
-        text = text.replace("{{INPUT_UNPACKED}}", write_array("input_unpacked", input_vals, SIGNED))
-        text = text.replace("{{INPUT_UNPACKED_BIN}}", write_array_binary("input_unpacked_bin", input_vals, SIGNED))
-        text = text.replace("{{WEIGHTS_UNPACKED}}", write_array("weights_unpacked", weights_vals, SIGNED))
-        text = text.replace("{{WEIGHTS_UNPACKED_BIN}}", write_array_binary("weights_unpacked_bin", weights_vals, SIGNED))
-        
-        bias_vals = ", ".join(["0"] * N)
-        text = text.replace("{{BIAS_VALUES}}", bias_vals)
-        
-        golden_flat = prod_8bit.flatten()
-        golden_lines = [", ".join(str(int(v)) for v in golden_flat[i:i+16]) 
-                       for i in range(0, len(golden_flat), 16)]
-        golden_array = f"int32_t golden[M_d * N_d] = {{\n    " + ",\n    ".join(golden_lines) + "\n};"
-        text = text.replace("{{GOLDEN_ARRAY}}", golden_array)
-        text = text.replace("{{GOLDEN_ARRAY_BIN}}", write_product_array_binary("golden", prod_8bit, SIGNED, cols_per_line=N))
-        
-        text += "\n"
-
-    # Append unpacked input/weights and their binary versions
-    text += "// ===== UNPACKED ARRAYS =====\n"
-    text += write_array("input_unpacked", input_vals, SIGNED) + "\n"
-    text += write_array_binary("input_unpacked", input_vals, SIGNED)
-    text += write_array("weights_unpacked", weights_vals, SIGNED) + "\n"
-    text += write_array_binary("weights_unpacked", weights_vals, SIGNED)
+    # Calculate packed dimensions
+    packed_cols = num_blocks * 16  # 16 bytes per block
     
-    # Append packed input/weights and their binary versions
+    # Build output text
+    text = ""
+    
+    # Write unpacked arrays
+    text += "// ===== UNPACKED ARRAYS =====\n"
+    if is_input_2d:
+        text += write_array_2d("input_unpacked", input_vals, M, K, SIGNED) + "\n"
+        text += write_array_2d_binary("input_unpacked", input_vals, M, K, SIGNED)
+    else:
+        text += write_array("input_unpacked", input_vals, SIGNED) + "\n"
+        text += write_array_binary("input_unpacked", input_vals, SIGNED)
+    
+    if is_weights_2d:
+        text += write_array_2d("weights_unpacked", weights_vals, N, K, SIGNED) + "\n"
+        text += write_array_2d_binary("weights_unpacked", weights_vals, N, K, SIGNED)
+    else:
+        text += write_array("weights_unpacked", weights_vals, SIGNED) + "\n"
+        text += write_array_binary("weights_unpacked", weights_vals, SIGNED)
+    
+    # Write packed arrays
     text += "// ===== PACKED ARRAYS =====\n"
-    text += write_array("input_packed", input_packed, SIGNED) + "\n"
-    text += write_array_binary("input_packed", input_packed, SIGNED)
-    text += write_array("weights_packed", weights_packed, SIGNED) + "\n"
-    text += write_array_binary("weights_packed", weights_packed, SIGNED)
+    if is_input_2d:
+        text += write_array_2d("input_packed", input_packed, M, packed_cols, SIGNED) + "\n"
+        text += write_array_2d_binary("input_packed", input_packed, M, packed_cols, SIGNED)
+    else:
+        text += write_array("input_packed", input_packed, SIGNED) + "\n"
+        text += write_array_binary("input_packed", input_packed, SIGNED)
+    
+    if is_weights_2d:
+        text += write_array_2d("weights_packed", weights_packed, N, packed_cols, SIGNED) + "\n"
+        text += write_array_2d_binary("weights_packed", weights_packed, N, packed_cols, SIGNED)
+    else:
+        text += write_array("weights_packed", weights_packed, SIGNED) + "\n"
+        text += write_array_binary("weights_packed", weights_packed, SIGNED)
 
-    # Append 2-bit/4-bit matrices and products (with binary versions)
+    # Write 2-bit/4-bit arrays
     text += "// ===== 2-BIT ARRAYS =====\n"
-    text += write_array("input_2bit", input_2bit, SIGNED) + "\n"
-    text += write_array_binary("input_2bit", input_2bit, SIGNED)
-    text += write_array("input_4bit", input_4bit, SIGNED) + "\n"
-    text += write_array_binary("input_4bit", input_4bit, SIGNED)
-    text += write_array("input_8bit", input_vals, SIGNED) + "\n"
-    text += write_array_binary("input_8bit", input_vals, SIGNED)
-    text += write_array("weights_2bit", weights_2bit, SIGNED) + "\n"
-    text += write_array_binary("weights_2bit", weights_2bit, SIGNED)
-    text += write_array("weights_4bit", weights_4bit, SIGNED) + "\n"
-    text += write_array_binary("weights_4bit", weights_4bit, SIGNED)
-    text += write_array("weights_8bit", weights_vals, SIGNED) + "\n"
-    text += write_array_binary("weights_8bit", weights_vals, SIGNED)
+    if is_input_2d:
+        text += write_array_2d("input_2bit", input_2bit, M, K, SIGNED) + "\n"
+        text += write_array_2d_binary("input_2bit", input_2bit, M, K, SIGNED)
+        text += write_array_2d("input_4bit", input_4bit, M, K, SIGNED) + "\n"
+        text += write_array_2d_binary("input_4bit", input_4bit, M, K, SIGNED)
+        text += write_array_2d("input_8bit", input_vals, M, K, SIGNED) + "\n"
+        text += write_array_2d_binary("input_8bit", input_vals, M, K, SIGNED)
+    else:
+        text += write_array("input_2bit", input_2bit, SIGNED) + "\n"
+        text += write_array_binary("input_2bit", input_2bit, SIGNED)
+        text += write_array("input_4bit", input_4bit, SIGNED) + "\n"
+        text += write_array_binary("input_4bit", input_4bit, SIGNED)
+        text += write_array("input_8bit", input_vals, SIGNED) + "\n"
+        text += write_array_binary("input_8bit", input_vals, SIGNED)
+    
+    if is_weights_2d:
+        text += write_array_2d("weights_2bit", weights_2bit, N, K, SIGNED) + "\n"
+        text += write_array_2d_binary("weights_2bit", weights_2bit, N, K, SIGNED)
+        text += write_array_2d("weights_4bit", weights_4bit, N, K, SIGNED) + "\n"
+        text += write_array_2d_binary("weights_4bit", weights_4bit, N, K, SIGNED)
+        text += write_array_2d("weights_8bit", weights_vals, N, K, SIGNED) + "\n"
+        text += write_array_2d_binary("weights_8bit", weights_vals, N, K, SIGNED)
+    else:
+        text += write_array("weights_2bit", weights_2bit, SIGNED) + "\n"
+        text += write_array_binary("weights_2bit", weights_2bit, SIGNED)
+        text += write_array("weights_4bit", weights_4bit, SIGNED) + "\n"
+        text += write_array_binary("weights_4bit", weights_4bit, SIGNED)
+        text += write_array("weights_8bit", weights_vals, SIGNED) + "\n"
+        text += write_array_binary("weights_8bit", weights_vals, SIGNED)
+    
+    # Write products
     text += write_product_array("product_2bit", prod_2bit, SIGNED)
     text += write_product_array_binary("product_2bit", prod_2bit, SIGNED, cols_per_line=N)
     text += write_product_array("product_4bit", prod_4bit, SIGNED)
@@ -298,6 +402,9 @@ def main(infile=None, outfile="output.h", datafile="data.h"):
 
     Path(outfile).write_text(text)
     print(f"Diagnostic header written to {outfile} with SIGNED={SIGNED}, dims=({M},{K},{N})")
+    if is_input_2d or is_weights_2d:
+        print(f"  Input: {'2D' if is_input_2d else '1D'} {input_dims}, Weights: {'2D' if is_weights_2d else '1D'} {weights_dims}")
+        print(f"  Packed dimensions: input[{M}][{packed_cols}], weights[{N}][{packed_cols}]")
 
     # Generate data.h from template
     template = Path("template_data.h").read_text()
@@ -340,3 +447,121 @@ if __name__ == "__main__":
         print("  output.h: Diagnostic output with packed/2bit/4bit arrays (default: output.h)")
         print("  data.h: Final data file from template (default: data.h)")
         sys.exit(1)
+
+import numpy as np
+
+def int8_to_binary_str(value):
+    """Convert int8 value to 8-bit binary string representation."""
+    # Handle two's complement for negative numbers
+    if value < 0:
+        value = (1 << 8) + value
+    return format(value, '08b')
+
+def pack_weights_bitplane(weights, output_file="out_real.h"):
+    """
+    Pack weights using bitplane representation while maintaining original array dimensions.
+    Input: weights array of shape (M, K)
+    Output: Generates header file with unpacked and binary representations
+    """
+    M, K = weights.shape
+    total_elements = M * K
+    
+    # Flatten for processing
+    weights_flat = weights.flatten()
+    
+    # Generate header file
+    with open(output_file, 'w') as f:
+        f.write("// ===== UNPACKED ARRAYS =====\n")
+        
+        # Write unpacked input array (flattened)
+        f.write(f"int8_t input_unpacked[{total_elements}] = {{\n")
+        for i in range(0, total_elements, 16):
+            line_vals = weights_flat[i:i+16]
+            f.write("    " + ", ".join(str(v) for v in line_vals) + ",\n")
+        f.write("};\n")
+        
+        # Write binary representation
+        f.write("// Binary representation of input_unpacked\n")
+        f.write(f"int8_t input_unpacked_binary[{total_elements}] = {{\n")
+        for i in range(0, total_elements, 16):
+            line_vals = weights_flat[i:i+16]
+            binary_vals = [f"0b{v & 0xFF:08b}" for v in line_vals]
+            f.write("    " + ", ".join(binary_vals) + ",\n")
+        f.write("};\n\n")
+        
+        # Write unpacked weights array (same as input in this context)
+        f.write(f"int8_t weights_unpacked[{total_elements}] = {{\n")
+        for i in range(0, total_elements, 16):
+            line_vals = weights_flat[i:i+16]
+            f.write("    " + ", ".join(str(v) for v in line_vals) + ",\n")
+        f.write("};\n")
+        
+        # Write binary representation of weights
+        f.write("// Binary representation of weights_unpacked\n")
+
+def generate_input_header(input_data, weights_data, output_file="in_real.h"):
+    """
+    Generate input header file maintaining original 2D array dimensions.
+    Input: input_data (M, K), weights_data (N, K)
+    """
+    M, K = input_data.shape
+    N, K_w = weights_data.shape
+    
+    with open(output_file, 'w') as f:
+        f.write("#ifndef __ARRAY_INT_8_1_32_1_H__\n")
+        f.write("#define __ARRAY_INT_8_1_32_1_H__\n\n")
+        f.write("#include <stdint.h>\n\n")
+        
+        f.write(f"#define M_d {M}\n")
+        f.write(f"#define K_d {K}\n")
+        f.write(f"#define N_d {N}\n\n")
+        
+        f.write("const int8_t zp_input = 0;\n")
+        f.write("const int8_t zp_weights = 0;\n\n")
+        
+        # Write input array as 2D array
+        f.write(f"int8_t input[{M}][{K}] = {{\n")
+        for i in range(M):
+            f.write("    {")
+            f.write(", ".join(str(v) for v in input_data[i]))
+            f.write("},\n")
+        f.write("};\n\n")
+        
+        # Write weights array as 2D array
+        f.write(f"int8_t weights[{N}][{K_w}] = {{\n")
+        for i in range(N):
+            f.write("    {")
+            f.write(", ".join(str(v) for v in weights_data[i]))
+            f.write("},\n")
+        f.write("};\n\n")
+        
+        # Write bias array
+        f.write(f"\nint32_t bias[N_d] = {{\n")
+        f.write("    " + ", ".join(["0"] * N))
+        f.write("\n};\n\n")
+        
+        # Placeholder for golden output
+        f.write(f"int32_t golden[M_d * N_d] = {{\n")
+        f.write("    -19908\n")
+        f.write("};\n\n")
+        
+        f.write("#endif  // __ARRAY_INT_8_1_32_1_H__\n")
+
+# Main execution
+if __name__ == "__main__":
+    # Load data from existing header file or generate sample data
+    # For this example, create sample data matching the dimensions
+    M, K, N = 10, 512, 10
+    
+    # Generate random sample data for demonstration
+    np.random.seed(42)
+    input_data = np.random.randint(-100, 100, size=(M, K), dtype=np.int8)
+    weights_data = np.random.randint(-100, 100, size=(N, K), dtype=np.int8)
+    
+    # Generate header files
+    pack_weights_bitplane(input_data, "out_real.h")
+    generate_input_header(input_data, weights_data, "in_real.h")
+    
+    print(f"Generated header files with dimensions:")
+    print(f"  input[{M}][{K}]")
+    print(f"  weights[{N}][{K}]")

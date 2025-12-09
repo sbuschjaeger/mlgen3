@@ -83,16 +83,18 @@ class LinuxStandalone(Materializer):
         with open(os.path.join(self.path, self.filename + header_ext), "w") as f:
             f.write(self.implementation.header if is_c_impl else self.beautify(self.implementation.header))
         
-        # Write weights header as a separate file if using embedded weights mode
-        if is_c_impl and hasattr(self.implementation, 'use_header_weights') and self.implementation.use_header_weights:
+        # Save weights header if using embedded weights
+        if hasattr(self.implementation, 'use_header_weights') and self.implementation.use_header_weights:
             if hasattr(self.implementation, 'weights_header') and self.implementation.weights_header:
-                with open(os.path.join(self.path, self.filename + "_weights.h"), "w") as f:
+                weights_header_path = os.path.join(path, f"{self.filename}_weights.h")
+                with open(weights_header_path, 'w') as f:
                     f.write(self.implementation.weights_header)
-            
-            # Write debug header with unpacked weights
-            if hasattr(self.implementation, 'weights_debug_header') and self.implementation.weights_debug_header:
-                with open(os.path.join(self.path, self.filename + "_weights_debug.h"), "w") as f:
-                    f.write(self.implementation.weights_debug_header)
+                print(f"Weights header saved to: {weights_header_path}")
+        
+        # Write debug header with unpacked weights
+        if hasattr(self.implementation, 'weights_debug_header') and self.implementation.weights_debug_header:
+            with open(os.path.join(self.path, self.filename + "_weights_debug.h"), "w") as f:
+                f.write(self.implementation.weights_debug_header)
 
     def generate_tests(self):
         main_str = ""
