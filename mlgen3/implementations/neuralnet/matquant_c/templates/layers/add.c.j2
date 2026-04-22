@@ -1,0 +1,8 @@
+{# Params: layer_name, n_elements, input_a, input_b, output_buf #}
+/* Residual Add: {{ layer_name }} (int8 + int8 -> int32) */
+{
+    int _i;
+    for (_i = 0; _i < {{ n_elements }}; _i++) {
+        {{ output_buf }}[_i] = (int32_t){{ input_a }}[_i] + (int32_t){{ input_b }}[_i];
+    }
+}

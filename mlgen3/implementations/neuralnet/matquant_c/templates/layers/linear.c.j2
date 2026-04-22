@@ -1,0 +1,16 @@
+{# Params: safe_name, layer_name, in_features, out_features, has_bias, input_buf, output_buf #}
+/* Linear: {{ layer_name }} {{ in_features }} -> {{ out_features }} */
+{
+    int _o, _i;
+    for (_o = 0; _o < {{ out_features }}; _o++) {
+        int32_t _acc = 0;
+        for (_i = 0; _i < {{ in_features }}; _i++) {
+            _acc += (int32_t){{ input_buf }}[_i]
+                  * (int32_t){{ safe_name }}_weight[_o * {{ in_features }} + _i];
+        }
+{% if has_bias %}
+        _acc += (int32_t){{ safe_name }}_bias[_o];
+{% endif %}
+        {{ output_buf }}[_o] = _acc;
+    }
+}

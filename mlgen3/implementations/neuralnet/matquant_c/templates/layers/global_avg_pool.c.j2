@@ -1,0 +1,16 @@
+{# Params: layer_name, h, w, ch, h_x_w, input_buf, output_buf #}
+/* Global Average Pool: {{ layer_name }} [{{ h }}x{{ w }}x{{ ch }}] -> [{{ ch }}] */
+{
+    int _c, _i;
+    int _npix = {{ h_x_w }};
+    for (_c = 0; _c < {{ ch }}; _c++) {
+        int32_t _sum = 0;
+        for (_i = 0; _i < _npix; _i++) {
+            _sum += (int32_t){{ input_buf }}[_i * {{ ch }} + _c];
+        }
+        int32_t _q = (_sum + _npix / 2) / _npix;
+        if (_q >  127) _q =  127;
+        if (_q < -128) _q = -128;
+        {{ output_buf }}[_c] = (int8_t)_q;
+    }
+}

@@ -1,0 +1,25 @@
+{# Params: safe_name, layer_name, in_h, in_w, in_ch, out_h, out_w, out_ch,
+           kh, kw, stride_h, stride_w, pad_h, pad_w, input_buf, output_buf
+           Also expects pre-computed products as context vars:
+           in_w_x_in_ch, in_ch_x_kh_x_kw, kh_x_kw, out_w_x_out_ch #}
+/* Conv2d: {{ layer_name }} [{{ in_h }}x{{ in_w }}x{{ in_ch }}] -> [{{ out_h }}x{{ out_w }}x{{ out_ch }}] */
+{
+    int _oh, _ow, _oc, _ic, _fh, _fw;
+    for (_oh = 0; _oh < {{ out_h }}; _oh++) {
+    for (_ow = 0; _ow < {{ out_w }}; _ow++) {
+    for (_oc = 0; _oc < {{ out_ch }}; _oc++) {
+        int32_t _acc = 0;
+        for (_fh = 0; _fh < {{ kh }}; _fh++) {
+        for (_fw = 0; _fw < {{ kw }}; _fw++) {
+        for (_ic = 0; _ic < {{ in_ch }}; _ic++) {
+            int _ih = _oh * {{ stride_h }} + _fh - {{ pad_h }};
+            int _iw = _ow * {{ stride_w }} + _fw - {{ pad_w }};
+            if (_ih < 0 || _ih >= {{ in_h }} || _iw < 0 || _iw >= {{ in_w }}) continue;
+            int8_t _x = {{ input_buf }}[_ih * {{ in_w_x_in_ch }} + _iw * {{ in_ch }} + _ic];
+            int8_t _w = {{ safe_name }}_weight[
+                _oc * {{ in_ch_x_kh_x_kw }} + _ic * {{ kh_x_kw }} + _fh * {{ kw }} + _fw];
+            _acc += (int32_t)_x * (int32_t)_w;
+        }}}
+        {{ output_buf }}[_oh * {{ out_w_x_out_ch }} + _ow * {{ out_ch }} + _oc] = _acc;
+    }}}
+}

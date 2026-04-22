@@ -1,0 +1,12 @@
+{# Params: layer_name, n_elements, input_buf, output_buf, scale_add #}
+/* Middle-plate: requantize only (after residual Add) -- {{ layer_name }} */
+{
+    int _i;
+    for (_i = 0; _i < {{ n_elements }}; _i++) {
+        float _v = (float){{ input_buf }}[_i] * {{ scale_add }}f;
+        int32_t _q = (int32_t)(_v + (_v >= 0.0f ? 0.5f : -0.5f));
+        if (_q >  127) _q =  127;
+        if (_q < -128) _q = -128;
+        {{ output_buf }}[_i] = (int8_t)_q;
+    }
+}
