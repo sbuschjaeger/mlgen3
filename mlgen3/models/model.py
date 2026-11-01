@@ -16,9 +16,6 @@ class Model(ABC):
     # x_train, y_train, x_test, y_test
 
     def __init__(self, prediction_type):
-        assert (
-            prediction_type == PredictionType.CLASSIFICATION
-        ), "Currently only classification is supported"
         self.prediction_type = prediction_type
 
         self.original_model = None

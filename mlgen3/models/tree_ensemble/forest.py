@@ -13,7 +13,7 @@ class Forest(Model):
 
 	@classmethod
 	def from_sklearn(cls, sk_model):
-		from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier, ExtraTreesClassifier, BaggingClassifier, GradientBoostingClassifier
+		from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier, ExtraTreesClassifier, BaggingClassifier, GradientBoostingClassifier, GradientBoostingRegressor
 
 		"""Generates a new ensemble from an sklearn ensemble.
 
@@ -26,7 +26,27 @@ class Forest(Model):
 
 		model = Forest()
 		 
-		if isinstance(sk_model, (BaggingClassifier, RandomForestClassifier, ExtraTreesClassifier, AdaBoostClassifier, GradientBoostingClassifier)):
+		if isinstance(sk_model, (GradientBoostingClassifier, GradientBoostingRegressor)):
+			# estimators_ holds one regression tree per round and output (one output for regression and binary
+			# classification, one per class otherwise). Each tree becomes a member whose leaves predict a vector that
+			# is zero except at its output, so the weighted sum of all members is the raw score (decision_function).
+			if sk_model.init_ != 'zero':
+				raise ValueError("'zero' is the only supported init for gradient boosting models")
+			if isinstance(sk_model, GradientBoostingRegressor):
+				model.prediction_type = PredictionType.REGRESSION
+			n_outputs = sk_model.estimators_.shape[1]
+			for row in sk_model.estimators_:
+				for k, base in enumerate(row):
+					tree = Tree.from_sklearn(base)
+					for n in tree.nodes:
+						if n.prediction is not None:
+							pred = np.zeros(n_outputs)
+							pred[k] = n.prediction[0]
+							n.prediction = pred
+					tree.n_classes = n_outputs
+					model.trees.append(tree)
+					model.weights.append(sk_model.learning_rate)
+		elif isinstance(sk_model, (BaggingClassifier, RandomForestClassifier, ExtraTreesClassifier, AdaBoostClassifier)):
 			#obj.category = "ensemble"
 
 			#if isinstance(sk_model, AdaBoostClassifier):
@@ -35,11 +55,6 @@ class Forest(Model):
 			num_models = len(sk_model.estimators_)
 			if isinstance(sk_model, (AdaBoostClassifier)):
 				model.weights = sk_model.estimator_weights_
-			elif isinstance(sk_model, (GradientBoostingClassifier)):
-				model.weights = [sk_model.learning_rate for _ in range(num_models*sk_model.n_classes_)] #weights are equal to the learning rate for GradientBoosting
-				if sk_model.init_ != 'zero':
-					raise ValueError("""'zero' is the only supported init classifier for gradient boosting models""")
-					#TODO implement class prior classifier					 
 			else:
 				model.weights = [1.0/num_models for i in range(num_models)]
 

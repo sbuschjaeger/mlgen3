@@ -6,8 +6,8 @@ from .ensemble import Ensemble
 
 class Native(Ensemble):
 
-	def __init__(self, model, feature_type="int", label_type="int", int_type=None, reorder_nodes = False, set_size = 8, force_cacheline = False):
-		super().__init__(model,feature_type,label_type)
+	def __init__(self, model, feature_type="int", label_type="int", int_type=None, reorder_nodes = False, set_size = 8, force_cacheline = False, n_files = 1):
+		super().__init__(model,feature_type,label_type,n_files)
 		self.reorder_nodes = reorder_nodes
 		self.set_size = set_size
 		self.force_cacheline = force_cacheline
@@ -155,14 +155,27 @@ class Native(Ensemble):
 				to_expand.append( (cid, False, n.rightChild) )
 		return inner_nodes, leaf_nodes
 
+	def shared_definitions(self):
+		# The node layout is needed by every member source file, so it lives in the header
+		return f"""
+			struct Node {{
+				{self.int_type} feature;
+				{self.feature_type} split;
+				bool left_is_leaf;
+				bool right_is_leaf;
+				{self.int_type} left;
+				{self.int_type} right;
+			}};
+		"""
+
 	def implement_member(self, number): 
 		np.set_printoptions(legacy="1.25", precision=None, threshold=None)
 		if number is None:
 			tree = self.model.trees[0]
-			header = f"std::vector<{self.label_type}> predict(std::vector<{self.feature_type}> &x)"
+			header = f"void predict(const {self.feature_type} *pX, {self.label_type} *out)"
 		else:
 			tree = self.model.trees[number]
-			header = f"std::vector<{self.label_type}> predict_{number}(std::vector<{self.feature_type}> &x)"
+			header = f"void predict_{number}(const {self.feature_type} *pX, {self.label_type} *out)"
 
 		if self.reorder_nodes:
 			tree.populate_path_probs()
@@ -180,20 +193,6 @@ class Native(Ensemble):
 			else:
 				self.int_type = "unsigned long"
 		
-		if number is None or number == 0:
-			node_struct = f"""
-				struct Node {{
-					{self.int_type} feature;
-					{self.feature_type} split;
-					bool left_is_leaf;
-					bool right_is_leaf;
-					{self.int_type} left;
-					{self.int_type} right;
-				}};
-			""".strip()
-		else:
-			node_struct = ""
-
 		suffix = "_" + str(number) if number is not None else ""
 
 		preds = ",".join([str(list(n.prediction)).replace("[", "{").replace("]","}") for n in leaf_nodes])
@@ -205,11 +204,19 @@ class Native(Ensemble):
 		else:
 			nodes_array = ""
 
+		def add_leaf(index):
+			# The leaf adds its whole row of the prediction table to the output of the ensemble
+			return f"""
+				for (unsigned int k = 0; k < {tree.n_classes}; ++k) {{
+					out[k] += predictions{suffix}[{index}][k];
+				}}
+			"""
+
 		if len(inner_nodes) > 0:
 			core_loop = f"""
 				{self.int_type} i = 0;
 				while(true) {{
-					if (x[nodes{suffix}[i].feature] <= nodes{suffix}[i].split){{
+					if (pX[nodes{suffix}[i].feature] <= nodes{suffix}[i].split){{
 						if (nodes{suffix}[i].left_is_leaf) {{
 							i = nodes{suffix}[i].left;
 							break;
@@ -225,13 +232,12 @@ class Native(Ensemble):
 						}}
 					}}
 				}}
-				return std::vector<{self.label_type}>(predictions{suffix}[i], predictions{suffix}[i]+{tree.n_classes});
+				{add_leaf("i")}
 			"""
 		else:
-			core_loop = f"return std::vector<{self.label_type}>(predictions{suffix}[0]+{tree.n_classes});"
+			core_loop = add_leaf(0)
 
 		code = f"""
-			{node_struct}
 			{pred_array}
 			{nodes_array}
 		"""

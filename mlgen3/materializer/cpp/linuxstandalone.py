@@ -6,7 +6,6 @@ import pandas as pd
 from importlib_resources import files
 import csv
 import re
-from sktime.datasets import write_dataframe_to_tsfile
 
 from ..materializer import Materializer
 
@@ -47,6 +46,11 @@ class LinuxStandalone(Materializer):
         except ImportError:
             return s
 
+    def member_filenames(self):
+        # The file with the predict functions, followed by the files that hold the trees
+        n_members = len(getattr(self.implementation, "member_codes", []))
+        return [self.filename + ".cpp"] + [f"{self.filename}_{j}.cpp" for j in range(n_members)]
+
     def materialize(self, path):
         # I dont why we need to call this here. This does not really make sense? Why do we need to store the path? Simply for the deploy step?
         super().materialize(path)
@@ -59,6 +63,10 @@ class LinuxStandalone(Materializer):
 
         with open(os.path.join(self.path, self.filename + ".h"), "w") as f:
             f.write(self.beautify(self.implementation.header))
+
+        for j, member_code in enumerate(getattr(self.implementation, "member_codes", [])):
+            with open(os.path.join(self.path, f"{self.filename}_{j}.cpp"), "w") as f:
+                f.write(self.beautify(member_code))
 
     def generate_tests(self):
         main_str = ""
@@ -143,8 +151,10 @@ class LinuxStandalone(Materializer):
             .joinpath("linuxstandalone_makefile.template")
             .read_text()
         )
-        makefile_str = makefile_str.replace("{filename}", self.filename).replace(
-            "{compiler}", self.compiler
+        makefile_str = (
+            makefile_str.replace("{filename}", self.filename)
+            .replace("{compiler}", self.compiler)
+            .replace("{sources}", " ".join(["main.cpp"] + self.member_filenames()))
         )
 
         with open(os.path.join(self.path, "Makefile"), "w") as f:

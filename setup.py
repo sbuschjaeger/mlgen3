@@ -8,6 +8,7 @@ setup(name='mlgen3',
     url='tbd',
     python_requires='>=3.7',
     packages=find_packages('.'),
+    package_data={'mlgen3.materializer.cpp': ['*.template']},
     install_requires=[
         'numpy', 'pandas', 'tqdm', 'importlib_resources'
     ],

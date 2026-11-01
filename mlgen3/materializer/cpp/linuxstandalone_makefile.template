@@ -1,5 +1,15 @@
 COMPILER = {compiler}
 FLAGS = -std=c++17 -Wall -O3 -funroll-loops -ftree-vectorize
 
-all:
-	$(COMPILER) $(FLAGS) main.cpp {filename}.cpp -o {filename}
+SOURCES = {sources}
+OBJECTS = $(SOURCES:.cpp=.o)
+
+all: {filename}
+
+{filename}: $(OBJECTS)
+	$(COMPILER) $(FLAGS) $(OBJECTS) -o {filename}
+
+%.o: %.cpp
+	$(COMPILER) $(FLAGS) -c $< -o $@
+
+.PHONY: all

@@ -53,6 +53,11 @@ class Arduino(Materializer):
         with open(os.path.join(self.path+"src", self.filename + ".h"), 'w') as f: #creates model.h
             f.write(self.beautify(self.implementation.header))
 
+        # PlatformIO compiles every file in src, so the tree code simply goes into one file per member
+        for j, member_code in enumerate(getattr(self.implementation, "member_codes", [])):
+            with open(os.path.join(self.path+"src", f"{self.filename}_{j}.cpp"), 'w') as f:
+                f.write(self.beautify(member_code))
+
         with open(os.path.join(self.path+"src", "main.cpp"), 'w') as f: #creates main.cpp
             f.write(self.beautify(self.generate_maincpp()))
 

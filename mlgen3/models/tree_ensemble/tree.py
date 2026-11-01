@@ -185,7 +185,7 @@ class Tree(Model):
 	@classmethod
 	def from_sklearn(cls, sk_model, ensemble_type = None):
 		# TODO REMOVE THIS DEPENDENCY?
-		from sklearn.tree import _tree
+		from sklearn.tree import _tree, DecisionTreeRegressor
 		"""Generates a new tree from an sklearn tree.
 
 		Args:
@@ -200,7 +200,9 @@ class Tree(Model):
 		
 		tree.nodes = []
 		tree.head = None
-		tree.n_classes = sk_model.n_classes_
+		# A regression tree (e.g. a member of a gradient boosting ensemble) has one value per output instead of class counts
+		is_regressor = isinstance(sk_model, DecisionTreeRegressor)
+		tree.n_classes = sk_model.n_outputs_ if is_regressor else sk_model.n_classes_
 		tree.original_model = sk_model
 
 		sk_tree = sk_model.tree_
@@ -216,7 +218,9 @@ class Tree(Model):
 				# Get array of prediction probabilities for each class
 				proba = sk_tree.value[cur_node][0, :]  
 				#computations of prediction values for bagging and boosting models:
-				if ensemble_type is None or ensemble_type == "RandomForestClassifier":
+				if is_regressor:
+					proba = proba.copy()
+				elif ensemble_type is None or ensemble_type == "RandomForestClassifier":
 					proba = proba / sum(proba)
 				elif ensemble_type == "AdaBoostClassifier_SAMME.R":
 					proba = proba/sum(proba)
@@ -225,8 +229,6 @@ class Tree(Model):
 					proba = (log_proba - (1. /sk_model.n_classes_) * log_proba.sum())
 				elif ensemble_type == "AdaBoostClassifier_SAMME":
 					proba = proba/sum(proba)
-					proba = proba #*weights
-				elif isinstance(sk_model, DecisionTreeRegressor):
 					proba = proba #*weights
 
 				node.prediction = proba #* weight
